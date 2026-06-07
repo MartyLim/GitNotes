@@ -358,6 +358,23 @@ textarea {
   font-weight: 700;
 }
 
+.field-help {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.field-help a {
+  color: var(--accent-strong);
+  text-decoration: none;
+}
+
+.field-help a:hover {
+  text-decoration: underline;
+}
+
 .dialog-actions {
   justify-content: flex-end;
   gap: 8px;

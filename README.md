@@ -1,61 +1,64 @@
 # GitNotes
 
-GitNotes is a clean, installable Markdown notes PWA backed by a GitHub repository. It is designed for personal notes on iPhone without App Store publishing, native signing, or a backend server.
+GitNotes is a lightweight web notes app backed by a GitHub repo.
 
-The app uses GitHub's REST Contents API rather than a real local Git clone. Opening the app refreshes notes from GitHub, and saving a note creates a commit in your repository.
+It is meant as a simple alternative if you want something in the orbit of Obsidian or Notion, but with a much smaller surface area: plain Markdown files, GitHub as the source of truth, and a clean web UI that works well as a PWA on iPhone and Android.
 
-## Features
+Hosted app:
 
-- Installable PWA for iPhone home-screen use.
-- Markdown notes stored as `.md` files in a GitHub repo folder.
-- GitHub Pages friendly static hosting.
-- Local IndexedDB cache for fast loading and offline drafts.
-- Create, edit, delete, search, sync, and save notes.
-- Commit-on-save using the GitHub Contents API.
-- Basic conflict detection using GitHub file SHAs.
-- No third-party analytics or remote scripts.
+https://martylim.github.io/GitNotes/
 
-## iPhone Install
+## What It Is
 
-1. Open the hosted GitNotes URL in Safari.
-2. Tap Share.
-3. Tap Add to Home Screen.
-4. Enable Open as Web App if prompted.
-5. Tap Add.
+- A browser-first notes interface for Markdown files in a GitHub repo.
+- Installable as a PWA on mobile.
+- Static hosting only. No backend.
+- Good fit for personal notes, a shared repo of docs, or a lightweight published notes setup.
 
-The app will launch from your home screen like a standalone app.
+## How It Works
 
-## GitHub Token Setup
+- Notes live in a GitHub repository as `.md` files.
+- The app reads and writes those files through the GitHub Contents API.
+- On open, it syncs from GitHub.
+- On save, it commits the edited file back to GitHub.
+- Local drafts are cached in the browser so the app stays useful offline.
 
-Create a fine-grained personal access token:
+## Setup
 
-1. Go to GitHub Settings -> Developer settings -> Personal access tokens -> Fine-grained tokens.
-2. Generate a new token.
-3. Set the resource owner to your account.
-4. Select only the repository you want GitNotes to use.
-5. Grant repository permission: Contents -> Read and write.
-6. Set an expiration date.
-7. Copy the token and paste it into GitNotes setup.
+1. Create a fine-grained GitHub token.
+2. Scope it to the repo you want to use.
+3. Give it `Contents: read and write`.
+4. Open the app and enter:
+   - `Repository Owner`
+   - `Repository Name`
+   - `Branch`
+   - `Base Directory` if you want notes somewhere other than the repo root
 
-Do not use a broad classic token unless fine-grained tokens do not work for your repo or organization.
+Token setup details:
 
-## Security Model
+https://docs.github.com/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token
 
-GitNotes is a static PWA hosted on GitHub Pages. There is no server-side secret storage, so the browser must store and send your GitHub token directly.
+Permissions reference:
 
-For v1, the token is stored in IndexedDB on the device/browser where you set up the app. To reduce risk:
+https://docs.github.com/en/rest/overview/permissions-required-for-fine-grained-personal-access-tokens
 
-- Use a fine-grained token scoped to one notes repo.
-- Grant only Contents read/write.
-- Set a token expiration.
-- Do not add third-party scripts or analytics.
-- Do not paste the token into URLs, issues, logs, or screenshots.
+## Using It As A PWA
 
-If someone gets JavaScript execution in this app's origin while your token is stored, they may be able to read the token. This is the main tradeoff of a no-backend PWA.
+On iPhone or Android, open the site in your browser and add it to your home screen. Once installed, it behaves like a standalone app and gives you a cleaner full-screen experience than a normal tab.
+
+On iPhone:
+
+1. Open the site in Safari.
+2. Use Share -> Add to Home Screen.
+
+On Android:
+
+1. Open the site in Chrome or another supported browser.
+2. Use the browser menu to install the app.
 
 ## Local Development
 
-This app is dependency-free. Any static file server works.
+Any static server works:
 
 ```bash
 python3 -m http.server 4173
@@ -67,40 +70,26 @@ Then open:
 http://localhost:4173
 ```
 
-## Deploy To GitHub Pages
+## Deploying
 
-1. Push this project to a GitHub repository.
-2. In the repo, open Settings -> Pages.
-3. Choose Deploy from a branch.
-4. Select the branch and root folder.
-5. Save.
-6. Open the published GitHub Pages URL.
+This repo is set up to run from GitHub Pages:
 
-Because all asset paths are relative, the app works from either a custom domain or a repository subpath like `/GitNotes/`.
+https://martylim.github.io/GitNotes/
 
-## How Sync Works
+If you fork it or use it for your own repo, just publish the static files and update the hosted URL in your README.
 
-- App open: fetches the configured notes folder from GitHub.
-- Note open: loads cached content first, then fetches the file from GitHub if needed.
-- Save: writes local content immediately and pushes the file through GitHub's Contents API.
-- Commit message: `Create path/to/note.md` or `Update path/to/note.md`.
-- Offline: notes remain pending locally and push when the app returns online.
-- Conflict: if the remote file SHA changed since the note was loaded, GitNotes asks whether to reload remote, save as copy, or overwrite.
+## For Contributors
 
-## Current Limitations
+This is a small static app by design. If you want to contribute, start by keeping the UI simple and the sync model boring. The main goals are:
 
-- GitHub only.
-- Not a full Git client; no local clone, branches UI, merge UI, or rebase.
-- Basic conflict handling, not a visual diff.
-- Token is stored in browser storage, not iOS Keychain.
-- No end-to-end encryption.
-- Markdown editing only; preview and backlinks are future work.
+- fast note editing
+- clear GitHub sync
+- good mobile PWA behavior
+- minimal setup friction
 
-## Roadmap Ideas
+## A Few Limits
 
-- Optional passphrase lock for the stored token.
-- Markdown preview.
-- Tags and backlinks.
-- Conflict diff viewer.
-- Batch commits.
-- GitHub OAuth or GitHub App backend for safer public use.
+- GitHub-only sync.
+- No full Git client.
+- Basic conflict handling.
+- Token is stored locally in the browser, not in a backend.

@@ -176,7 +176,7 @@ function openSettings() {
   els.ownerInput.value = state.config?.owner || "";
   els.repoInput.value = state.config?.repo || "";
   els.branchInput.value = state.config?.branch || "main";
-  els.folderInput.value = state.config?.folder || "notes";
+  els.folderInput.value = state.config?.folder || "";
   els.settingsDialog.showModal();
 }
 
@@ -186,7 +186,7 @@ async function saveSettings() {
     owner: els.ownerInput.value.trim(),
     repo: els.repoInput.value.trim(),
     branch: els.branchInput.value.trim() || "main",
-    folder: normalizeFolder(els.folderInput.value)
+    folder: normalizeBaseDirectory(els.folderInput.value)
   };
 
   if (!nextConfig.owner || !nextConfig.repo || !nextConfig.branch) {
@@ -213,8 +213,9 @@ async function clearToken() {
   showToast("Token forgotten on this device.");
 }
 
-function normalizeFolder(value) {
-  return value.trim().replace(/^\/+|\/+$/g, "") || "notes";
+function normalizeBaseDirectory(value) {
+  const cleaned = value.trim().replace(/^\/+|\/+$/g, "");
+  return cleaned === "root" ? "" : cleaned;
 }
 
 async function syncFromRemote({ silent = false } = {}) {
@@ -266,8 +267,7 @@ async function syncFromRemote({ silent = false } = {}) {
 }
 
 async function listMarkdownFiles() {
-  const path = encodePath(state.config.folder);
-  const url = apiUrl(`/repos/${state.config.owner}/${state.config.repo}/contents/${path}`, {
+  const url = apiUrl(contentEndpoint(state.config.folder), {
     ref: state.config.branch
   });
   const response = await githubFetch(url, { allow404: true });
@@ -310,8 +310,8 @@ async function loadNoteContent(note) {
 }
 
 async function createNote() {
-  const title = uniqueTitle("Untitled");
-  const path = uniquePath(`${state.config?.folder || "notes"}/${slugify(title)}.md`);
+  const path = uniquePath(joinBaseDirectory(state.config?.folder || "", "Untitled.md"));
+  const title = titleFromPath(path);
   const note = {
     id: crypto.randomUUID(),
     path,
@@ -356,7 +356,9 @@ async function saveCurrentNote({ overwrite = false } = {}) {
   applyEditorToSelected();
   const previousPath = state.selectedNote.path;
   const previousSha = state.selectedNote.sha;
+  state.selectedNote.title = normalizeFilename(state.selectedNote.title);
   state.selectedNote.path = pathForTitle(state.selectedNote.title, state.selectedNote.path);
+  state.selectedNote.title = titleFromPath(state.selectedNote.path);
   state.selectedNote.previousPath = previousPath === state.selectedNote.path ? "" : previousPath;
   state.selectedNote.previousSha = previousPath === state.selectedNote.path ? "" : previousSha;
   if (state.selectedNote.previousPath) {
@@ -381,7 +383,7 @@ async function saveCurrentNote({ overwrite = false } = {}) {
 }
 
 function applyEditorToSelected() {
-  state.selectedNote.title = els.titleInput.value.trim() || "Untitled";
+  state.selectedNote.title = els.titleInput.value.trim() || "Untitled.md";
   state.selectedNote.content = els.noteEditor.value;
 }
 
@@ -582,6 +584,7 @@ function render() {
   renderNotes();
   renderEditor();
   renderMeta();
+  renderSetupPrompt();
 }
 
 function renderNotes() {
@@ -658,6 +661,10 @@ function renderMeta() {
   els.pendingMeta.textContent = pending ? "Unsynced changes" : "Saved";
 }
 
+function renderSetupPrompt() {
+  els.emptyState.hidden = isConfigured();
+}
+
 function setSync(kind, text) {
   els.syncStatus.className = `sync-dot is-${kind}`;
   els.syncText.textContent = text;
@@ -683,40 +690,43 @@ function sortNotes(notes) {
 }
 
 function titleFromPath(path) {
-  return path.split("/").pop().replace(/\.md$/i, "").replace(/[-_]+/g, " ") || "Untitled";
+  return path.split("/").pop() || "Untitled.md";
 }
 
-function slugify(value) {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "untitled";
-}
-
-function uniqueTitle(base) {
-  const titles = new Set(state.notes.map((note) => note.title));
-  if (!titles.has(base)) return base;
-  let index = 2;
-  while (titles.has(`${base} ${index}`)) index += 1;
-  return `${base} ${index}`;
+function normalizeFilename(value) {
+  const trimmed = value.trim();
+  if (!trimmed) return "Untitled.md";
+  return trimmed.toLowerCase().endsWith(".md") ? trimmed : `${trimmed}.md`;
 }
 
 function uniquePath(path) {
   const paths = new Set(state.notes.map((note) => note.path));
   if (!paths.has(path)) return path;
-  const withoutExt = path.replace(/\.md$/i, "");
+  const slashIndex = path.lastIndexOf("/");
+  const dir = slashIndex >= 0 ? path.slice(0, slashIndex + 1) : "";
+  const filename = slashIndex >= 0 ? path.slice(slashIndex + 1) : path;
+  const extIndex = filename.toLowerCase().lastIndexOf(".md");
+  const stem = extIndex >= 0 ? filename.slice(0, extIndex) : filename;
+  const ext = extIndex >= 0 ? filename.slice(extIndex) : ".md";
   let index = 2;
-  while (paths.has(`${withoutExt}-${index}.md`)) index += 1;
-  return `${withoutExt}-${index}.md`;
+  while (paths.has(`${dir}${stem}-${index}${ext}`)) index += 1;
+  return `${dir}${stem}-${index}${ext}`;
 }
 
 function pathForTitle(title, currentPath) {
-  const folder = state.config?.folder || "notes";
-  const nextName = `${slugify(title)}.md`;
-  const nextPath = `${folder}/${nextName}`;
+  const nextPath = joinBaseDirectory(state.config?.folder || "", normalizeFilename(title));
   if (currentPath === nextPath) return currentPath;
   return uniquePath(nextPath);
+}
+
+function joinBaseDirectory(baseDirectory, filename) {
+  const normalizedBase = normalizeBaseDirectory(baseDirectory);
+  return normalizedBase ? `${normalizedBase}/${filename}` : filename;
+}
+
+function contentEndpoint(baseDirectory) {
+  const normalizedBase = normalizeBaseDirectory(baseDirectory);
+  return normalizedBase ? `/repos/${state.config.owner}/${state.config.repo}/contents/${encodePath(normalizedBase)}` : `/repos/${state.config.owner}/${state.config.repo}/contents`;
 }
 
 function commitMessage(note) {
