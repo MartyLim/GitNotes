@@ -58,7 +58,12 @@ const els = {
   conflictDialog: document.querySelector("#conflictDialog"),
   conflictReload: document.querySelector("#conflictReload"),
   conflictCopy: document.querySelector("#conflictCopy"),
-  conflictOverwrite: document.querySelector("#conflictOverwrite")
+  conflictOverwrite: document.querySelector("#conflictOverwrite"),
+  saveConfirmDialog: document.querySelector("#saveConfirmDialog"),
+  saveConfirmForm: document.querySelector("#saveConfirmForm"),
+  cancelSaveButton: document.querySelector("#cancelSaveButton"),
+  saveSummary: document.querySelector("#saveSummary"),
+  savePreview: document.querySelector("#savePreview")
 };
 
 let dbPromise;
@@ -103,6 +108,15 @@ function bindEvents() {
     await createNewItem();
   });
 
+  els.saveConfirmForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (event.submitter?.value === "cancel") {
+      els.saveConfirmDialog.close("cancel");
+      return;
+    }
+    els.saveConfirmDialog.close("confirm");
+  });
+
   els.newTypeFile.addEventListener("change", updateNewItemPlaceholder);
   els.newTypeFolder.addEventListener("change", updateNewItemPlaceholder);
 
@@ -144,6 +158,7 @@ async function loadState() {
   state.token = (await getValue(TOKEN_KEY)) || "";
   state.notes = ((await getValue(NOTES_KEY)) || []).map((note) => ({
     ...note,
+    savedContent: note.savedContent ?? (note.dirty || note.pending ? "" : note.content || ""),
     title: titleFromPath(note.path)
   }));
   state.folders = (await getValue(FOLDERS_KEY)) || [];
@@ -298,6 +313,7 @@ async function syncFromRemote({ silent = false } = {}) {
       sha: file.sha,
       remoteSha: file.sha,
       content: local?.content || "",
+      savedContent: local?.savedContent ?? (local?.dirty || local?.pending ? "" : local?.content || ""),
       loaded: Boolean(local?.loaded),
       dirty: Boolean(local?.dirty),
       pending: Boolean(local?.pending),
@@ -379,6 +395,7 @@ async function loadNoteContent(note) {
   }));
   const file = await response.json();
   note.content = decodeBase64(file.content || "");
+  note.savedContent = note.content;
   note.sha = file.sha;
   note.remoteSha = file.sha;
   note.loaded = true;
@@ -436,6 +453,7 @@ async function createNote(location, filename) {
     sha: "",
     remoteSha: "",
     content: "",
+    savedContent: "",
     loaded: true,
     dirty: true,
     pending: true,
@@ -574,17 +592,11 @@ async function saveCurrentNote({ overwrite = false } = {}) {
     return;
   }
 
-  applyEditorToSelected();
-  const previousPath = state.selectedNote.path;
-  const previousSha = state.selectedNote.sha;
-  state.selectedNote.path = pathForTitle(state.selectedNote.title, state.selectedNote.path);
-  state.selectedNote.title = titleFromPath(state.selectedNote.path);
-  state.selectedNote.previousPath = previousPath === state.selectedNote.path ? "" : previousPath;
-  state.selectedNote.previousSha = previousPath === state.selectedNote.path ? "" : previousSha;
-  if (state.selectedNote.previousPath) {
-    state.selectedNote.sha = "";
-    state.selectedNote.remoteSha = "";
-  }
+  const nextDraft = buildSaveDraft();
+  const confirmed = await confirmSave(nextDraft);
+  if (!confirmed) return;
+
+  applySaveDraft(nextDraft);
   state.selectedPath = state.selectedNote.path;
   state.selectedNote.dirty = true;
   state.selectedNote.pending = true;
@@ -605,6 +617,97 @@ async function saveCurrentNote({ overwrite = false } = {}) {
 function applyEditorToSelected() {
   state.selectedNote.title = els.titleInput.value.trim() || "Untitled.md";
   state.selectedNote.content = els.noteEditor.value;
+}
+
+function buildSaveDraft() {
+  const note = state.selectedNote;
+  const previousPath = note.path;
+  const nextTitle = els.titleInput.value.trim() || "Untitled.md";
+  const nextContent = els.noteEditor.value;
+  const nextPath = pathForTitle(nextTitle, previousPath);
+
+  return {
+    previousPath,
+    previousSha: note.sha,
+    previousContent: note.savedContent ?? "",
+    nextPath,
+    nextTitle: titleFromPath(nextPath),
+    nextContent,
+    isNew: !note.sha,
+    isRename: previousPath !== nextPath
+  };
+}
+
+function applySaveDraft(draft) {
+  state.selectedNote.path = draft.nextPath;
+  state.selectedNote.title = draft.nextTitle;
+  state.selectedNote.content = draft.nextContent;
+  state.selectedNote.previousPath = draft.isRename ? draft.previousPath : "";
+  state.selectedNote.previousSha = draft.isRename ? draft.previousSha : "";
+  if (state.selectedNote.previousPath) {
+    state.selectedNote.sha = "";
+    state.selectedNote.remoteSha = "";
+  }
+}
+
+function confirmSave(draft) {
+  renderSaveConfirmation(draft);
+  return new Promise((resolve) => {
+    const onClose = () => {
+      els.saveConfirmDialog.removeEventListener("close", onClose);
+      resolve(els.saveConfirmDialog.returnValue === "confirm");
+    };
+    els.saveConfirmDialog.addEventListener("close", onClose);
+    els.saveConfirmDialog.showModal();
+  });
+}
+
+function renderSaveConfirmation(draft) {
+  els.saveSummary.innerHTML = "";
+
+  const rows = [
+    ["Action", draft.isNew ? "Create file" : draft.isRename ? "Rename and update file" : "Update file"],
+    ["Path", draft.nextPath]
+  ];
+  if (draft.isRename) rows.splice(1, 0, ["From", draft.previousPath]);
+
+  for (const [label, value] of rows) {
+    const row = document.createElement("div");
+    const labelEl = document.createElement("span");
+    const valueEl = document.createElement("strong");
+    labelEl.textContent = label;
+    valueEl.textContent = value;
+    row.append(labelEl, valueEl);
+    els.saveSummary.append(row);
+  }
+
+  els.savePreview.textContent = buildChangePreview(draft.previousContent, draft.nextContent);
+}
+
+function buildChangePreview(before, after) {
+  if (before === after) return "No content changes.";
+
+  const beforeLines = before.split("\n");
+  const afterLines = after.split("\n");
+  const maxLines = Math.max(beforeLines.length, afterLines.length);
+  const output = [];
+  let changedLines = 0;
+
+  for (let index = 0; index < maxLines; index += 1) {
+    const oldLine = beforeLines[index];
+    const newLine = afterLines[index];
+    if (oldLine === newLine) continue;
+
+    changedLines += 1;
+    if (changedLines > 80) {
+      output.push("... preview truncated");
+      break;
+    }
+    if (oldLine !== undefined) output.push(`- ${oldLine}`);
+    if (newLine !== undefined) output.push(`+ ${newLine}`);
+  }
+
+  return output.join("\n") || "No content changes.";
 }
 
 async function pushNote(note, { overwrite = false } = {}) {
@@ -647,6 +750,7 @@ async function pushNote(note, { overwrite = false } = {}) {
     note.dirty = false;
     note.pending = false;
     note.loaded = true;
+    note.savedContent = note.content;
     state.dirty = false;
     await persistNotes();
     setSync("ok", "Pushed to GitHub");

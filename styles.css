@@ -526,6 +526,45 @@ textarea {
   padding: 10px 12px;
 }
 
+.save-summary {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.save-summary div {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.save-summary span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.save-summary strong {
+  overflow-wrap: anywhere;
+  font-size: 0.9rem;
+}
+
+.change-preview {
+  max-height: 320px;
+  overflow: auto;
+  margin: 16px 0 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #202124;
+  color: #f8f4eb;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  padding: 12px;
+  white-space: pre-wrap;
+}
+
 .dialog-actions {
   justify-content: flex-end;
   gap: 8px;

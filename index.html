@@ -173,6 +173,26 @@
       </form>
     </dialog>
 
+    <dialog id="saveConfirmDialog" class="dialog">
+      <form id="saveConfirmForm">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Review changes</p>
+            <h2>Save to GitHub</h2>
+          </div>
+          <button class="icon-button" value="cancel" type="submit" aria-label="Close">x</button>
+        </header>
+
+        <div id="saveSummary" class="save-summary"></div>
+        <pre id="savePreview" class="change-preview"></pre>
+
+        <menu class="dialog-actions">
+          <button id="cancelSaveButton" class="secondary-button" value="cancel" type="submit">Cancel</button>
+          <button id="confirmSaveButton" class="primary-button" value="default" type="submit">Confirm save</button>
+        </menu>
+      </form>
+    </dialog>
+
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <script type="module" src="./src/app.js"></script>
   </body>
