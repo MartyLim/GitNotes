@@ -4,16 +4,17 @@ const STORE = "kv";
 const CONFIG_KEY = "config";
 const TOKEN_KEY = "token";
 const NOTES_KEY = "notes";
+const FOLDERS_KEY = "folders";
 const SELECTED_KEY = "selectedPath";
-const VALID_SETUP_KEY = "validSetup";
+const MASKED_TOKEN = "****************";
 
 const state = {
   config: null,
   token: "",
   notes: [],
+  folders: [],
   selectedPath: "",
   selectedNote: null,
-  validSetup: false,
   dirty: false,
   saving: false,
   online: navigator.onLine
@@ -30,9 +31,17 @@ const els = {
   repoInput: document.querySelector("#repoInput"),
   branchInput: document.querySelector("#branchInput"),
   folderInput: document.querySelector("#folderInput"),
+  settingsError: document.querySelector("#settingsError"),
   clearTokenButton: document.querySelector("#clearTokenButton"),
   searchInput: document.querySelector("#searchInput"),
   newNoteButton: document.querySelector("#newNoteButton"),
+  newItemDialog: document.querySelector("#newItemDialog"),
+  newItemForm: document.querySelector("#newItemForm"),
+  newTypeFile: document.querySelector("#newTypeFile"),
+  newTypeFolder: document.querySelector("#newTypeFolder"),
+  newItemNameInput: document.querySelector("#newItemNameInput"),
+  newLocationTree: document.querySelector("#newLocationTree"),
+  newItemError: document.querySelector("#newItemError"),
   syncButton: document.querySelector("#syncButton"),
   saveButton: document.querySelector("#saveButton"),
   deleteButton: document.querySelector("#deleteButton"),
@@ -76,7 +85,7 @@ function bindEvents() {
   els.settingsButton.addEventListener("click", openSettings);
   els.emptySetupButton.addEventListener("click", openSettings);
   els.searchInput.addEventListener("input", renderNotes);
-  els.newNoteButton.addEventListener("click", createNote);
+  els.newNoteButton.addEventListener("click", openNewItemDialog);
   els.syncButton.addEventListener("click", () => syncFromRemote());
   els.saveButton.addEventListener("click", () => saveCurrentNote());
   els.deleteButton.addEventListener("click", deleteCurrentNote);
@@ -87,6 +96,15 @@ function bindEvents() {
     event.preventDefault();
     await saveSettings();
   });
+
+  els.newItemForm.addEventListener("submit", async (event) => {
+    if (event.submitter?.value === "cancel") return;
+    event.preventDefault();
+    await createNewItem();
+  });
+
+  els.newTypeFile.addEventListener("change", updateNewItemPlaceholder);
+  els.newTypeFolder.addEventListener("change", updateNewItemPlaceholder);
 
   els.titleInput.addEventListener("input", () => {
     if (!state.selectedNote) return;
@@ -128,8 +146,8 @@ async function loadState() {
     ...note,
     title: titleFromPath(note.path)
   }));
+  state.folders = (await getValue(FOLDERS_KEY)) || [];
   state.selectedPath = (await getValue(SELECTED_KEY)) || "";
-  state.validSetup = Boolean(await getValue(VALID_SETUP_KEY));
   state.selectedNote = state.notes.find((note) => note.path === state.selectedPath) || null;
 }
 
@@ -179,20 +197,23 @@ function hasSetupFields() {
 }
 
 function hasValidSetup() {
-  return hasSetupFields() && state.validSetup;
+  return hasSetupFields();
 }
 
 function openSettings() {
-  els.tokenInput.value = state.token ? "****************" : "";
+  showSettingsError("");
+  els.tokenInput.value = state.token ? MASKED_TOKEN : "";
   els.ownerInput.value = state.config?.owner || "";
   els.repoInput.value = state.config?.repo || "";
   els.branchInput.value = state.config?.branch || "main";
   els.folderInput.value = state.config?.folder || "";
+  debugState("settings opened");
   els.settingsDialog.showModal();
 }
 
 async function saveSettings() {
   const tokenValue = els.tokenInput.value.trim();
+  const nextToken = tokenValue === MASKED_TOKEN ? state.token : tokenValue;
   const nextConfig = {
     owner: els.ownerInput.value.trim(),
     repo: els.repoInput.value.trim(),
@@ -201,35 +222,47 @@ async function saveSettings() {
   };
 
   if (!nextConfig.owner || !nextConfig.repo || !nextConfig.branch) {
-    showToast("Owner, repo, and branch are required.");
+    showSettingsError("Repository owner, repository name, and branch are required.");
     return;
   }
 
+  if (!nextToken) {
+    showSettingsError("A GitHub token is required.");
+    return;
+  }
+
+  const previousConfig = state.config;
+  const previousToken = state.token;
   state.config = nextConfig;
-  if (tokenValue && !tokenValue.includes("*")) {
-    state.token = tokenValue;
+  state.token = nextToken;
+  debugState("settings validation started");
+
+  try {
+    await listMarkdownFiles({ allowMissingDirectory: false });
+  } catch (error) {
+    state.config = previousConfig;
+    state.token = previousToken;
+    debugState("settings validation failed", { error: readableError(error) });
+    showSettingsError(`Could not read that repo or directory: ${readableError(error)}`);
+    return;
+  }
+
+  if (tokenValue !== MASKED_TOKEN) {
     await setValue(TOKEN_KEY, state.token);
   }
   await setValue(CONFIG_KEY, state.config);
   els.settingsDialog.close();
+  showSettingsError("");
+  debugState("settings saved");
   render();
-  try {
-    await syncFromRemote();
-  } catch (error) {
-    state.validSetup = false;
-    await setValue(VALID_SETUP_KEY, false);
-    openSettings();
-    setSync("error", readableError(error));
-    showToast(readableError(error));
-  }
+  await syncFromRemote();
 }
 
 async function clearToken() {
   state.token = "";
-  state.validSetup = false;
   await deleteValue(TOKEN_KEY);
-  await setValue(VALID_SETUP_KEY, false);
   els.tokenInput.value = "";
+  showSettingsError("");
   setSync("idle", "Token removed");
   showToast("Token forgotten on this device.");
   render();
@@ -251,12 +284,12 @@ async function syncFromRemote({ silent = false } = {}) {
 
   setSync("busy", "Syncing");
   const remoteFiles = await listMarkdownFiles();
-  state.validSetup = true;
-  await setValue(VALID_SETUP_KEY, true);
+  state.folders = remoteFiles.folders;
+  const markdownFiles = remoteFiles.files;
   const localByPath = new Map(state.notes.map((note) => [note.path, note]));
   const merged = [];
 
-  for (const file of remoteFiles) {
+  for (const file of markdownFiles) {
     const local = localByPath.get(file.path);
     merged.push({
       id: local?.id || crypto.randomUUID(),
@@ -283,23 +316,46 @@ async function syncFromRemote({ silent = false } = {}) {
   state.selectedNote = state.notes.find((note) => note.path === state.selectedPath) || state.notes[0] || null;
   state.selectedPath = state.selectedNote?.path || "";
   await persistNotes();
+
+  if (state.selectedNote && !state.selectedNote.loaded && !state.selectedNote.pending) {
+    await loadNoteContent(state.selectedNote);
+  }
+
+  debugState("sync complete", { remoteFileCount: markdownFiles.length, folderCount: state.folders.length });
   render();
   await syncPendingNotes();
   setSync("ok", `Synced ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`);
   if (!silent) showToast("Synced with GitHub.");
 }
 
-async function listMarkdownFiles() {
-  const url = apiUrl(contentEndpoint(state.config.folder), {
-    ref: state.config.branch
-  });
-  const response = await githubFetch(url, { allow404: true });
-  if (response.status === 404) return [];
-  const items = await response.json();
-  if (!Array.isArray(items)) return [];
-  return items
-    .filter((item) => item.type === "file" && item.name.toLowerCase().endsWith(".md"))
-    .map((item) => ({ path: item.path, sha: item.sha }));
+async function listMarkdownFiles({ allowMissingDirectory = true } = {}) {
+  const result = { files: [], folders: [] };
+  const directories = [normalizeBaseDirectory(state.config.folder)];
+
+  while (directories.length) {
+    const directory = directories.shift();
+    const url = apiUrl(contentEndpoint(directory), {
+      ref: state.config.branch
+    });
+    const response = await githubFetch(url, { allow404: allowMissingDirectory });
+    if (response.status === 404) continue;
+
+    const items = await response.json();
+    if (!Array.isArray(items)) {
+      throw new Error("Configured root directory is not a directory.");
+    }
+
+    for (const item of items) {
+      if (item.type === "dir") {
+        result.folders.push(item.path);
+        directories.push(item.path);
+      } else if (item.type === "file" && item.name.toLowerCase().endsWith(".md")) {
+        result.files.push({ path: item.path, sha: item.sha });
+      }
+    }
+  }
+
+  return result;
 }
 
 async function selectNote(path) {
@@ -332,12 +388,46 @@ async function loadNoteContent(note) {
   setSync("ok", "Note loaded");
 }
 
-async function createNote() {
+function openNewItemDialog() {
   if (!hasValidSetup()) {
     openSettings();
     return;
   }
-  const path = uniquePath(joinBaseDirectory(state.config?.folder || "", "Untitled.md"));
+
+  showNewItemError("");
+  els.newTypeFile.checked = true;
+  updateNewItemPlaceholder();
+  renderLocationTree();
+  els.newItemDialog.showModal();
+  els.newItemNameInput.focus();
+  els.newItemNameInput.select();
+}
+
+async function createNewItem() {
+  const type = els.newTypeFolder.checked ? "folder" : "file";
+  const name = normalizeNewItemName(els.newItemNameInput.value, type);
+  const location = selectedNewLocation();
+
+  if (!name) {
+    showNewItemError("Name is required.");
+    return;
+  }
+
+  if (name.includes("/")) {
+    showNewItemError("Use the location picker for folders. The name should not include a slash.");
+    return;
+  }
+
+  if (type === "folder") {
+    await createFolder(location, name);
+    return;
+  }
+
+  await createNote(location, name);
+}
+
+async function createNote(location, filename) {
+  const path = uniquePath(joinBaseDirectory(location, filename));
   const title = titleFromPath(path);
   const note = {
     id: crypto.randomUUID(),
@@ -357,9 +447,113 @@ async function createNote() {
   state.selectedPath = note.path;
   state.dirty = true;
   await persistNotes();
+  els.newItemDialog.close();
   render();
   els.titleInput.focus();
   els.titleInput.select();
+}
+
+async function createFolder(location, folderName) {
+  if (!state.online) {
+    showNewItemError("Folder creation needs GitHub access.");
+    return;
+  }
+
+  const folderPath = joinBaseDirectory(location, folderName);
+  const placeholderPath = joinBaseDirectory(folderPath, ".gitkeep");
+
+  try {
+    await githubFetch(apiUrl(`/repos/${state.config.owner}/${state.config.repo}/contents/${encodePath(placeholderPath)}`), {
+      method: "PUT",
+      body: JSON.stringify({
+        message: `Create ${folderPath}`,
+        content: encodeBase64(""),
+        branch: state.config.branch
+      })
+    });
+  } catch (error) {
+    showNewItemError(readableError(error));
+    return;
+  }
+
+  els.newItemDialog.close();
+  showToast("Folder created.");
+  await syncFromRemote();
+}
+
+function updateNewItemPlaceholder() {
+  els.newItemNameInput.value = "";
+  els.newItemNameInput.placeholder = els.newTypeFolder.checked ? "Folder name" : "Untitled.md";
+}
+
+function normalizeNewItemName(value, type) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (type === "folder") return normalizeBaseDirectory(trimmed);
+  return trimmed;
+}
+
+function selectedNewLocation() {
+  return els.newLocationTree.querySelector("input[name='newLocation']:checked")?.value || normalizeBaseDirectory(state.config?.folder || "");
+}
+
+function showNewItemError(message) {
+  els.newItemError.textContent = message;
+  els.newItemError.hidden = !message;
+}
+
+function renderLocationTree() {
+  els.newLocationTree.innerHTML = "";
+  const rootDirectory = normalizeBaseDirectory(state.config?.folder || "");
+  const directories = folderOptionsFromNotes();
+
+  appendLocationOption(rootDirectory, rootDirectory || "Repository root", 0, true);
+  for (const directory of directories) {
+    if (directory === rootDirectory) continue;
+    appendLocationOption(directory, directory.split("/").pop(), directoryDepth(directory, rootDirectory), false);
+  }
+}
+
+function folderOptionsFromNotes() {
+  const rootDirectory = normalizeBaseDirectory(state.config?.folder || "");
+  const directories = new Set(rootDirectory ? [rootDirectory] : [""]);
+
+  for (const folder of state.folders) {
+    directories.add(folder);
+  }
+
+  for (const note of state.notes) {
+    let directory = directoryFromPath(note.path);
+    while (directory) {
+      directories.add(directory);
+      directory = directoryFromPath(directory);
+    }
+  }
+
+  return [...directories].filter(Boolean).sort((a, b) => a.localeCompare(b));
+}
+
+function appendLocationOption(value, label, depth, checked) {
+  const option = document.createElement("label");
+  option.className = "location-option";
+  option.style.setProperty("--depth", depth);
+
+  const input = document.createElement("input");
+  input.type = "radio";
+  input.name = "newLocation";
+  input.value = value;
+  input.checked = checked;
+
+  const text = document.createElement("span");
+  text.textContent = label || "Repository root";
+
+  option.append(input, text);
+  els.newLocationTree.append(option);
+}
+
+function directoryDepth(directory, rootDirectory) {
+  const relative = rootDirectory && directory.startsWith(`${rootDirectory}/`) ? directory.slice(rootDirectory.length + 1) : directory;
+  return relative ? relative.split("/").length : 0;
 }
 
 async function saveDraftOnly() {
@@ -610,8 +804,8 @@ function render() {
   renderNotes();
   renderEditor();
   renderMeta();
-  renderSetupPrompt();
   renderLayout();
+  debugState("render");
 }
 
 function renderNotes() {
@@ -630,32 +824,67 @@ function renderNotes() {
     return;
   }
 
+  renderNoteTree(buildNoteTree(notes), els.noteList, 0);
+}
+
+function buildNoteTree(notes) {
+  const root = { dirs: new Map(), files: [] };
+
   for (const note of notes) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `note-item${note.path === state.selectedPath ? " is-active" : ""}`;
-    button.addEventListener("click", () => {
-      selectNote(note.path).catch((error) => setSync("error", readableError(error)));
-    });
+    const parts = note.path.split("/");
+    const filename = parts.pop();
+    let node = root;
 
-    const title = document.createElement("span");
-    title.className = "note-title";
-    title.textContent = `${note.title}${note.pending ? " *" : ""}`;
+    for (const part of parts) {
+      if (!node.dirs.has(part)) {
+        node.dirs.set(part, { name: part, dirs: new Map(), files: [] });
+      }
+      node = node.dirs.get(part);
+    }
 
-    const subtitle = document.createElement("span");
-    subtitle.className = "note-subtitle";
-    subtitle.textContent = note.path;
+    node.files.push({ ...note, title: filename || note.title });
+  }
 
-    button.append(title, subtitle);
-    els.noteList.append(button);
+  return root;
+}
+
+function renderNoteTree(node, container, depth) {
+  for (const file of sortNotes(node.files)) {
+    container.append(createNoteButton(file, depth));
+  }
+
+  for (const directory of [...node.dirs.values()].sort((a, b) => a.name.localeCompare(b.name))) {
+    const row = document.createElement("div");
+    row.className = "folder-item";
+    row.style.setProperty("--depth", depth);
+    row.textContent = directory.name;
+    container.append(row);
+    renderNoteTree(directory, container, depth + 1);
   }
 }
 
+function createNoteButton(note, depth) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `note-item${note.path === state.selectedPath ? " is-active" : ""}`;
+  button.style.setProperty("--depth", depth);
+  button.addEventListener("click", () => {
+    selectNote(note.path).catch((error) => setSync("error", readableError(error)));
+  });
+
+  const title = document.createElement("span");
+  title.className = "note-title";
+  title.textContent = `${note.title}${note.pending ? " *" : ""}`;
+
+  button.append(title);
+  return button;
+}
+
 function renderEditor() {
-  const showLanding = !hasValidSetup();
+  const hasSetup = hasSetupFields();
   const hasNote = Boolean(state.selectedNote);
-  els.emptyState.hidden = !showLanding;
-  els.editorState.hidden = showLanding || !hasNote;
+  els.emptyState.hidden = hasSetup;
+  els.editorState.hidden = !hasSetup || !hasNote;
   els.titleInput.disabled = !hasNote;
   els.noteEditor.disabled = !hasNote;
   els.saveButton.disabled = !hasNote || state.saving;
@@ -688,12 +917,8 @@ function renderMeta() {
   els.pendingMeta.textContent = pending ? "Unsynced changes" : "Saved";
 }
 
-function renderSetupPrompt() {
-  els.emptyState.hidden = hasValidSetup();
-}
-
 function renderLayout() {
-  els.app.classList.toggle("is-list-only", hasValidSetup() && !state.selectedNote);
+  els.app.classList.toggle("is-list-only", hasSetupFields() && !state.selectedNote);
 }
 
 function setSync(kind, text) {
@@ -710,9 +935,31 @@ function showToast(message) {
   }, 2800);
 }
 
+function showSettingsError(message) {
+  els.settingsError.textContent = message;
+  els.settingsError.hidden = !message;
+}
+
+function debugState(label, details = {}) {
+  console.debug("[GitNotes]", label, {
+    configured: hasSetupFields(),
+    owner: state.config?.owner || "",
+    repo: state.config?.repo || "",
+    branch: state.config?.branch || "",
+    folder: state.config?.folder || "",
+    noteCount: state.notes.length,
+    selectedPath: state.selectedPath,
+    selectedLoaded: Boolean(state.selectedNote?.loaded),
+    emptyHidden: els.emptyState.hidden,
+    editorHidden: els.editorState.hidden,
+    ...details
+  });
+}
+
 async function persistNotes() {
   state.notes = sortNotes(state.notes);
   await setValue(NOTES_KEY, state.notes);
+  await setValue(FOLDERS_KEY, state.folders);
   await setValue(SELECTED_KEY, state.selectedPath);
 }
 
@@ -739,9 +986,16 @@ function uniquePath(path) {
 }
 
 function pathForTitle(title, currentPath) {
-  const nextPath = joinBaseDirectory(state.config?.folder || "", title || "Untitled.md");
+  const currentDirectory = directoryFromPath(currentPath);
+  const baseDirectory = currentDirectory || state.config?.folder || "";
+  const nextPath = joinBaseDirectory(baseDirectory, title || "Untitled.md");
   if (currentPath === nextPath) return currentPath;
   return uniquePath(nextPath);
+}
+
+function directoryFromPath(path) {
+  const slashIndex = path.lastIndexOf("/");
+  return slashIndex >= 0 ? path.slice(0, slashIndex) : "";
 }
 
 function joinBaseDirectory(baseDirectory, filename) {

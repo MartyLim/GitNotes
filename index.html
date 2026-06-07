@@ -18,11 +18,10 @@
       <aside class="sidebar" aria-label="Notes">
         <header class="sidebar-header">
           <div>
-            <p class="eyebrow">GitNotes</p>
-            <h1>Notes</h1>
+            <h1>GitNotes</h1>
           </div>
-          <button id="settingsButton" class="icon-button" type="button" title="Settings" aria-label="Settings">
-            <span aria-hidden="true">Set</span>
+          <button id="settingsButton" class="settings-button" type="button" title="Settings" aria-label="Settings">
+            Settings
           </button>
         </header>
 
@@ -105,11 +104,52 @@
         <p class="help-text">
           Use a fine-grained GitHub token scoped to this repo with Contents read/write. The token is stored only in this browser.
         </p>
+        <p id="settingsError" class="form-error" role="alert" hidden></p>
 
         <menu class="dialog-actions">
           <button id="clearTokenButton" class="secondary-button danger" type="button">Forget token</button>
           <button class="secondary-button" value="cancel" type="submit">Cancel</button>
           <button id="saveSettingsButton" class="primary-button" value="default" type="submit">Save</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="newItemDialog" class="dialog compact">
+      <form id="newItemForm" method="dialog">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">New item</p>
+            <h2>Create in repository</h2>
+          </div>
+          <button class="icon-button" value="cancel" type="submit" aria-label="Close">x</button>
+        </header>
+
+        <div class="segmented-control" role="group" aria-label="Item type">
+          <label>
+            <input id="newTypeFile" type="radio" name="newType" value="file" checked>
+            <span>File</span>
+          </label>
+          <label>
+            <input id="newTypeFolder" type="radio" name="newType" value="folder">
+            <span>Folder</span>
+          </label>
+        </div>
+
+        <label class="stacked-field">
+          <span>Name</span>
+          <input id="newItemNameInput" type="text" autocomplete="off" placeholder="Untitled.md" required>
+        </label>
+
+        <div class="stacked-field">
+          <span>Location</span>
+          <div id="newLocationTree" class="location-tree" role="radiogroup" aria-label="Location"></div>
+        </div>
+
+        <p id="newItemError" class="form-error" role="alert" hidden></p>
+
+        <menu class="dialog-actions">
+          <button class="secondary-button" value="cancel" type="submit">Cancel</button>
+          <button id="createItemButton" class="primary-button" value="default" type="submit">Create</button>
         </menu>
       </form>
     </dialog>

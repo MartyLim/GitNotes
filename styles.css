@@ -18,6 +18,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   height: 100%;
@@ -124,7 +128,19 @@ h2 {
   font-size: 0.78rem;
 }
 
+.settings-button {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 253, 248, 0.55);
+  color: var(--ink);
+  font-size: 0.86rem;
+  font-weight: 800;
+  padding: 0 12px;
+}
+
 .icon-button:hover,
+.settings-button:hover,
 .secondary-button:hover {
   background: rgba(32, 33, 36, 0.06);
 }
@@ -213,21 +229,31 @@ textarea:focus {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
   min-height: 0;
   overflow: auto;
   padding: 2px 0;
 }
 
+.folder-item {
+  min-height: 30px;
+  padding: 7px 10px 5px calc((var(--depth, 0) * 18px) + 10px);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
 .note-item {
   position: relative;
   width: 100%;
-  min-height: 62px;
+  min-height: 44px;
   border: 1px solid transparent;
   border-radius: var(--radius);
   background: transparent;
   color: var(--ink);
-  padding: 9px 10px;
+  padding: 9px 10px 9px calc((var(--depth, 0) * 18px) + 10px);
   text-align: left;
 }
 
@@ -238,14 +264,14 @@ textarea:focus {
 }
 
 .note-item.is-active {
-  padding-left: 26px;
+  padding-left: calc((var(--depth, 0) * 18px) + 26px);
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .note-item.is-active::before {
   position: absolute;
-  top: 18px;
-  left: 10px;
+  top: 17px;
+  left: calc((var(--depth, 0) * 18px) + 10px);
   width: 7px;
   height: 7px;
   border-radius: 999px;
@@ -259,16 +285,6 @@ textarea:focus {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 800;
-}
-
-.note-subtitle {
-  display: block;
-  margin-top: 4px;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 0.82rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .editor-pane {
@@ -387,6 +403,101 @@ textarea {
   font-weight: 700;
 }
 
+.stacked-field {
+  display: block;
+  margin-top: 14px;
+}
+
+.stacked-field > span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.stacked-field input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-strong);
+  color: var(--ink);
+  padding: 0 12px;
+  outline: none;
+}
+
+.segmented-control {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #f4f0e7;
+  padding: 4px;
+}
+
+.segmented-control label {
+  min-width: 0;
+}
+
+.segmented-control input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.segmented-control span {
+  display: grid;
+  min-height: 34px;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.segmented-control input:checked + span {
+  background: var(--panel-strong);
+  color: var(--ink);
+  box-shadow: 0 1px 4px rgba(43, 38, 28, 0.12);
+}
+
+.location-tree {
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fbf8f1;
+  padding: 4px;
+}
+
+.location-option {
+  display: block;
+}
+
+.location-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.location-option span {
+  display: block;
+  min-height: 34px;
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: 0.88rem;
+  font-weight: 700;
+  padding: 8px 8px 8px calc((var(--depth, 0) * 18px) + 8px);
+}
+
+.location-option input:checked + span {
+  background: rgba(35, 107, 93, 0.12);
+  color: var(--accent-strong);
+}
+
 .field-help {
   display: block;
   margin-top: 6px;
@@ -402,6 +513,17 @@ textarea {
 
 .field-help a:hover {
   text-decoration: underline;
+}
+
+.form-error {
+  margin: 12px 0 0;
+  border: 1px solid rgba(163, 58, 52, 0.28);
+  border-radius: var(--radius);
+  background: rgba(163, 58, 52, 0.08);
+  color: var(--danger);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  padding: 10px 12px;
 }
 
 .dialog-actions {
