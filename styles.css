@@ -45,6 +45,18 @@ button {
   min-height: 100dvh;
 }
 
+.app-shell.is-list-only {
+  grid-template-columns: 1fr;
+}
+
+.app-shell.is-list-only .sidebar {
+  border-right: 0;
+}
+
+.app-shell.is-list-only .editor-pane {
+  display: none;
+}
+
 .sidebar {
   display: flex;
   flex-direction: column;
@@ -208,6 +220,7 @@ textarea:focus {
 }
 
 .note-item {
+  position: relative;
   width: 100%;
   min-height: 62px;
   border: 1px solid transparent;
@@ -222,6 +235,22 @@ textarea:focus {
 .note-item.is-active {
   background: rgba(255, 253, 248, 0.78);
   border-color: rgba(222, 216, 205, 0.7);
+}
+
+.note-item.is-active {
+  padding-left: 26px;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.note-item.is-active::before {
+  position: absolute;
+  top: 18px;
+  left: 10px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  content: "";
 }
 
 .note-title {

@@ -32,7 +32,7 @@ https://martylim.github.io/GitNotes/
    - `Repository Owner`
    - `Repository Name`
    - `Branch`
-   - `Base Directory` if you want notes somewhere other than the repo root
+   - `Root Directory` if you want notes somewhere other than the repo root
 
 Token setup details:
 

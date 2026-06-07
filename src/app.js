@@ -5,6 +5,7 @@ const CONFIG_KEY = "config";
 const TOKEN_KEY = "token";
 const NOTES_KEY = "notes";
 const SELECTED_KEY = "selectedPath";
+const VALID_SETUP_KEY = "validSetup";
 
 const state = {
   config: null,
@@ -12,12 +13,14 @@ const state = {
   notes: [],
   selectedPath: "",
   selectedNote: null,
+  validSetup: false,
   dirty: false,
   saving: false,
   online: navigator.onLine
 };
 
 const els = {
+  app: document.querySelector("#app"),
   settingsButton: document.querySelector("#settingsButton"),
   emptySetupButton: document.querySelector("#emptySetupButton"),
   settingsDialog: document.querySelector("#settingsDialog"),
@@ -60,7 +63,7 @@ async function init() {
   await registerServiceWorker();
   render();
 
-  if (isConfigured()) {
+  if (hasSetupFields()) {
     syncFromRemote({ silent: true }).catch((error) => {
       setSync("error", readableError(error));
     });
@@ -88,7 +91,7 @@ function bindEvents() {
   els.titleInput.addEventListener("input", () => {
     if (!state.selectedNote) return;
     state.dirty = true;
-    state.selectedNote.title = els.titleInput.value.trim() || "Untitled";
+    state.selectedNote.title = els.titleInput.value.trim() || "Untitled.md";
     renderMeta();
   });
 
@@ -121,8 +124,12 @@ function bindEvents() {
 async function loadState() {
   state.config = (await getValue(CONFIG_KEY)) || null;
   state.token = (await getValue(TOKEN_KEY)) || "";
-  state.notes = (await getValue(NOTES_KEY)) || [];
+  state.notes = ((await getValue(NOTES_KEY)) || []).map((note) => ({
+    ...note,
+    title: titleFromPath(note.path)
+  }));
   state.selectedPath = (await getValue(SELECTED_KEY)) || "";
+  state.validSetup = Boolean(await getValue(VALID_SETUP_KEY));
   state.selectedNote = state.notes.find((note) => note.path === state.selectedPath) || null;
 }
 
@@ -167,8 +174,12 @@ async function deleteValue(key) {
   });
 }
 
-function isConfigured() {
+function hasSetupFields() {
   return Boolean(state.token && state.config?.owner && state.config?.repo && state.config?.branch);
+}
+
+function hasValidSetup() {
+  return hasSetupFields() && state.validSetup;
 }
 
 function openSettings() {
@@ -202,24 +213,34 @@ async function saveSettings() {
   await setValue(CONFIG_KEY, state.config);
   els.settingsDialog.close();
   render();
-  await syncFromRemote();
+  try {
+    await syncFromRemote();
+  } catch (error) {
+    state.validSetup = false;
+    await setValue(VALID_SETUP_KEY, false);
+    openSettings();
+    setSync("error", readableError(error));
+    showToast(readableError(error));
+  }
 }
 
 async function clearToken() {
   state.token = "";
+  state.validSetup = false;
   await deleteValue(TOKEN_KEY);
+  await setValue(VALID_SETUP_KEY, false);
   els.tokenInput.value = "";
   setSync("idle", "Token removed");
   showToast("Token forgotten on this device.");
+  render();
 }
 
 function normalizeBaseDirectory(value) {
-  const cleaned = value.trim().replace(/^\/+|\/+$/g, "");
-  return cleaned === "root" ? "" : cleaned;
+  return value.trim().replace(/^\/+|\/+$/g, "");
 }
 
 async function syncFromRemote({ silent = false } = {}) {
-  if (!isConfigured()) {
+  if (!hasSetupFields()) {
     openSettings();
     return;
   }
@@ -230,6 +251,8 @@ async function syncFromRemote({ silent = false } = {}) {
 
   setSync("busy", "Syncing");
   const remoteFiles = await listMarkdownFiles();
+  state.validSetup = true;
+  await setValue(VALID_SETUP_KEY, true);
   const localByPath = new Map(state.notes.map((note) => [note.path, note]));
   const merged = [];
 
@@ -238,7 +261,7 @@ async function syncFromRemote({ silent = false } = {}) {
     merged.push({
       id: local?.id || crypto.randomUUID(),
       path: file.path,
-      title: local?.title || titleFromPath(file.path),
+      title: titleFromPath(file.path),
       sha: file.sha,
       remoteSha: file.sha,
       content: local?.content || "",
@@ -293,7 +316,7 @@ async function selectNote(path) {
 }
 
 async function loadNoteContent(note) {
-  if (!isConfigured() || !state.online) return;
+  if (!hasSetupFields() || !state.online) return;
   setSync("busy", "Loading note");
   const response = await githubFetch(apiUrl(`/repos/${state.config.owner}/${state.config.repo}/contents/${encodePath(note.path)}`, {
     ref: state.config.branch
@@ -310,6 +333,10 @@ async function loadNoteContent(note) {
 }
 
 async function createNote() {
+  if (!hasValidSetup()) {
+    openSettings();
+    return;
+  }
   const path = uniquePath(joinBaseDirectory(state.config?.folder || "", "Untitled.md"));
   const title = titleFromPath(path);
   const note = {
@@ -347,7 +374,7 @@ async function saveDraftOnly() {
 
 async function saveCurrentNote({ overwrite = false } = {}) {
   if (!state.selectedNote) return;
-  if (!isConfigured()) {
+  if (!hasSetupFields()) {
     await saveDraftOnly();
     openSettings();
     return;
@@ -356,7 +383,6 @@ async function saveCurrentNote({ overwrite = false } = {}) {
   applyEditorToSelected();
   const previousPath = state.selectedNote.path;
   const previousSha = state.selectedNote.sha;
-  state.selectedNote.title = normalizeFilename(state.selectedNote.title);
   state.selectedNote.path = pathForTitle(state.selectedNote.title, state.selectedNote.path);
   state.selectedNote.title = titleFromPath(state.selectedNote.path);
   state.selectedNote.previousPath = previousPath === state.selectedNote.path ? "" : previousPath;
@@ -471,7 +497,7 @@ function showConflictDialog() {
 }
 
 async function syncPendingNotes() {
-  if (!isConfigured() || !state.online) return;
+  if (!hasSetupFields() || !state.online) return;
   const pending = state.notes.filter((note) => note.pending && !note.deleted);
   for (const note of pending) {
     await pushNote(note);
@@ -491,7 +517,7 @@ async function deleteCurrentNote() {
   await persistNotes();
   render();
 
-  if (!note.sha || !isConfigured() || !state.online) {
+  if (!note.sha || !hasSetupFields() || !state.online) {
     showToast("Deleted locally.");
     return;
   }
@@ -585,6 +611,7 @@ function render() {
   renderEditor();
   renderMeta();
   renderSetupPrompt();
+  renderLayout();
 }
 
 function renderNotes() {
@@ -625,9 +652,10 @@ function renderNotes() {
 }
 
 function renderEditor() {
+  const showLanding = !hasValidSetup();
   const hasNote = Boolean(state.selectedNote);
-  els.emptyState.hidden = hasNote;
-  els.editorState.hidden = !hasNote;
+  els.emptyState.hidden = !showLanding;
+  els.editorState.hidden = showLanding || !hasNote;
   els.titleInput.disabled = !hasNote;
   els.noteEditor.disabled = !hasNote;
   els.saveButton.disabled = !hasNote || state.saving;
@@ -648,8 +676,7 @@ function renderEditor() {
 }
 
 function renderMeta() {
-  const configured = isConfigured();
-  if (!configured) setSync("idle", "Not configured");
+  if (!hasSetupFields()) setSync("idle", "Not configured");
   if (!state.selectedNote) {
     els.noteMeta.textContent = "No note selected";
     els.pendingMeta.textContent = "";
@@ -662,7 +689,11 @@ function renderMeta() {
 }
 
 function renderSetupPrompt() {
-  els.emptyState.hidden = isConfigured();
+  els.emptyState.hidden = hasValidSetup();
+}
+
+function renderLayout() {
+  els.app.classList.toggle("is-list-only", hasValidSetup() && !state.selectedNote);
 }
 
 function setSync(kind, text) {
@@ -693,12 +724,6 @@ function titleFromPath(path) {
   return path.split("/").pop() || "Untitled.md";
 }
 
-function normalizeFilename(value) {
-  const trimmed = value.trim();
-  if (!trimmed) return "Untitled.md";
-  return trimmed.toLowerCase().endsWith(".md") ? trimmed : `${trimmed}.md`;
-}
-
 function uniquePath(path) {
   const paths = new Set(state.notes.map((note) => note.path));
   if (!paths.has(path)) return path;
@@ -707,14 +732,14 @@ function uniquePath(path) {
   const filename = slashIndex >= 0 ? path.slice(slashIndex + 1) : path;
   const extIndex = filename.toLowerCase().lastIndexOf(".md");
   const stem = extIndex >= 0 ? filename.slice(0, extIndex) : filename;
-  const ext = extIndex >= 0 ? filename.slice(extIndex) : ".md";
+  const ext = extIndex >= 0 ? filename.slice(extIndex) : "";
   let index = 2;
   while (paths.has(`${dir}${stem}-${index}${ext}`)) index += 1;
   return `${dir}${stem}-${index}${ext}`;
 }
 
 function pathForTitle(title, currentPath) {
-  const nextPath = joinBaseDirectory(state.config?.folder || "", normalizeFilename(title));
+  const nextPath = joinBaseDirectory(state.config?.folder || "", title || "Untitled.md");
   if (currentPath === nextPath) return currentPath;
   return uniquePath(nextPath);
 }
