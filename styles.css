@@ -315,6 +315,10 @@ textarea:focus {
   flex: 0 0 auto;
 }
 
+.mobile-only {
+  display: none;
+}
+
 .empty-state {
   display: grid;
   place-items: center;
@@ -382,6 +386,16 @@ textarea {
 
 .dialog.compact {
   width: min(480px, calc(100vw - 28px));
+}
+
+.dialog-search {
+  display: block;
+  margin-top: 16px;
+}
+
+.file-picker-list {
+  max-height: min(58dvh, 520px);
+  margin-top: 12px;
 }
 
 .form-grid {
@@ -611,14 +625,11 @@ textarea {
   }
 
   .sidebar {
-    min-height: 42dvh;
-    max-height: 48dvh;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
+    display: none;
   }
 
   .editor-pane {
-    min-height: 52dvh;
+    min-height: 100dvh;
   }
 
   .editor-header {
@@ -628,7 +639,17 @@ textarea {
 
   .editor-actions {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .editor-actions .secondary-button,
+  .editor-actions .primary-button {
+    min-width: 0;
+    padding: 0 8px;
+  }
+
+  .mobile-only {
+    display: inline-block;
   }
 
   .form-grid {

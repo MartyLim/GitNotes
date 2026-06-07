@@ -45,9 +45,10 @@
         <header class="editor-header">
           <input id="titleInput" class="title-input" type="text" placeholder="Untitled.md" aria-label="Note title">
           <div class="editor-actions">
-            <button id="syncButton" class="secondary-button" type="button">Sync</button>
-            <button id="deleteButton" class="secondary-button danger" type="button">Delete</button>
-            <button id="saveButton" class="primary-button" type="button">Save to GitHub</button>
+            <button id="mobileFilesButton" class="secondary-button mobile-only" type="button">Files</button>
+            <button id="syncButton" class="secondary-button" type="button">Pull</button>
+            <button id="deleteButton" class="secondary-button danger" type="button">Delete File</button>
+            <button id="saveButton" class="primary-button" type="button">Push</button>
           </div>
         </header>
 
@@ -154,6 +155,25 @@
       </form>
     </dialog>
 
+    <dialog id="filePickerDialog" class="dialog compact">
+      <form method="dialog">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Files</p>
+            <h2>Open note</h2>
+          </div>
+          <button class="icon-button" value="cancel" type="submit" aria-label="Close">x</button>
+        </header>
+
+        <label class="search dialog-search">
+          <span class="sr-only">Search files</span>
+          <input id="mobileSearchInput" type="search" placeholder="Search files">
+        </label>
+
+        <div id="mobileFileList" class="note-list file-picker-list" role="list"></div>
+      </form>
+    </dialog>
+
     <dialog id="conflictDialog" class="dialog compact">
       <form method="dialog">
         <header class="dialog-header">
@@ -178,7 +198,7 @@
         <header class="dialog-header">
           <div>
             <p class="eyebrow">Review changes</p>
-            <h2>Save to GitHub</h2>
+            <h2>Push to GitHub</h2>
           </div>
           <button class="icon-button" value="cancel" type="submit" aria-label="Close">x</button>
         </header>

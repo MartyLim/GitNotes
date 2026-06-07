@@ -45,6 +45,10 @@ const els = {
   syncButton: document.querySelector("#syncButton"),
   saveButton: document.querySelector("#saveButton"),
   deleteButton: document.querySelector("#deleteButton"),
+  mobileFilesButton: document.querySelector("#mobileFilesButton"),
+  filePickerDialog: document.querySelector("#filePickerDialog"),
+  mobileSearchInput: document.querySelector("#mobileSearchInput"),
+  mobileFileList: document.querySelector("#mobileFileList"),
   noteList: document.querySelector("#noteList"),
   titleInput: document.querySelector("#titleInput"),
   noteEditor: document.querySelector("#noteEditor"),
@@ -90,6 +94,8 @@ function bindEvents() {
   els.settingsButton.addEventListener("click", openSettings);
   els.emptySetupButton.addEventListener("click", openSettings);
   els.searchInput.addEventListener("input", renderNotes);
+  els.mobileSearchInput.addEventListener("input", renderNotes);
+  els.mobileFilesButton.addEventListener("click", openFilePicker);
   els.newNoteButton.addEventListener("click", openNewItemDialog);
   els.syncButton.addEventListener("click", () => syncFromRemote());
   els.saveButton.addEventListener("click", () => saveCurrentNote());
@@ -384,7 +390,16 @@ async function selectNote(path) {
   if (state.selectedNote && !state.selectedNote.loaded && !state.selectedNote.pending) {
     await loadNoteContent(state.selectedNote);
   }
+  if (els.filePickerDialog.open) {
+    els.filePickerDialog.close();
+  }
   render();
+}
+
+function openFilePicker() {
+  renderNotes();
+  els.filePickerDialog.showModal();
+  els.mobileSearchInput.focus();
 }
 
 async function loadNoteContent(note) {
@@ -913,22 +928,27 @@ function render() {
 }
 
 function renderNotes() {
-  const query = els.searchInput.value.trim().toLowerCase();
+  renderNoteList(els.noteList, els.searchInput.value);
+  renderNoteList(els.mobileFileList, els.mobileSearchInput.value);
+}
+
+function renderNoteList(container, searchValue) {
+  const query = searchValue.trim().toLowerCase();
   const notes = state.notes.filter((note) => {
     if (!query) return true;
     return note.title.toLowerCase().includes(query) || note.path.toLowerCase().includes(query);
   });
 
-  els.noteList.innerHTML = "";
+  container.innerHTML = "";
   if (!notes.length) {
     const empty = document.createElement("p");
     empty.className = "help-text";
     empty.textContent = state.notes.length ? "No matching notes." : "No notes yet.";
-    els.noteList.append(empty);
+    container.append(empty);
     return;
   }
 
-  renderNoteTree(buildNoteTree(notes), els.noteList, 0);
+  renderNoteTree(buildNoteTree(notes), container, 0);
 }
 
 function buildNoteTree(notes) {
