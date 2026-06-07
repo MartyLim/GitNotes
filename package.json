@@ -1,0 +1,10 @@
+{
+  "name": "gitnotes",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A GitHub-backed Markdown notes PWA.",
+  "scripts": {
+    "dev": "python3 -m http.server 4173",
+    "serve": "python3 -m http.server 4173"
+  }
+}

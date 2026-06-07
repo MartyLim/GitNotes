@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f7f5ef">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="GitNotes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <title>GitNotes</title>
+    <link rel="manifest" href="./manifest.webmanifest">
+    <link rel="apple-touch-icon" href="./assets/icon.svg">
+    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div id="app" class="app-shell">
+      <aside class="sidebar" aria-label="Notes">
+        <header class="sidebar-header">
+          <div>
+            <p class="eyebrow">GitNotes</p>
+            <h1>Notes</h1>
+          </div>
+          <button id="settingsButton" class="icon-button" type="button" title="Settings" aria-label="Settings">
+            <span aria-hidden="true">Set</span>
+          </button>
+        </header>
+
+        <div class="sync-strip">
+          <span id="syncStatus" class="sync-dot is-idle"></span>
+          <span id="syncText">Not configured</span>
+        </div>
+
+        <div class="toolbar">
+          <label class="search">
+            <span class="sr-only">Search notes</span>
+            <input id="searchInput" type="search" placeholder="Search notes">
+          </label>
+          <button id="newNoteButton" class="primary-button" type="button">New</button>
+        </div>
+
+        <div id="noteList" class="note-list" role="list"></div>
+      </aside>
+
+      <main class="editor-pane">
+        <header class="editor-header">
+          <input id="titleInput" class="title-input" type="text" placeholder="Untitled note" aria-label="Note title">
+          <div class="editor-actions">
+            <button id="syncButton" class="secondary-button" type="button">Sync</button>
+            <button id="deleteButton" class="secondary-button danger" type="button">Delete</button>
+            <button id="saveButton" class="primary-button" type="button">Save</button>
+          </div>
+        </header>
+
+        <section id="emptyState" class="empty-state">
+          <h2>Your GitHub-backed notes</h2>
+          <p>Connect a repo, then create or edit Markdown notes. The app caches locally and commits saves back to GitHub.</p>
+          <button id="emptySetupButton" class="primary-button" type="button">Set up sync</button>
+        </section>
+
+        <section id="editorState" class="editor-state" hidden>
+          <textarea id="noteEditor" spellcheck="true" placeholder="Start writing..."></textarea>
+          <footer class="editor-footer">
+            <span id="noteMeta">No note selected</span>
+            <span id="pendingMeta"></span>
+          </footer>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="settingsDialog" class="dialog">
+      <form id="settingsForm" method="dialog">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Sync setup</p>
+            <h2>GitHub repository</h2>
+          </div>
+          <button class="icon-button" value="cancel" type="submit" aria-label="Close">x</button>
+        </header>
+
+        <div class="form-grid">
+          <label>
+            <span>Fine-grained token</span>
+            <input id="tokenInput" type="password" autocomplete="off" placeholder="github_pat_...">
+          </label>
+          <label>
+            <span>Owner</span>
+            <input id="ownerInput" type="text" autocomplete="off" placeholder="octocat" required>
+          </label>
+          <label>
+            <span>Repository</span>
+            <input id="repoInput" type="text" autocomplete="off" placeholder="notes" required>
+          </label>
+          <label>
+            <span>Branch</span>
+            <input id="branchInput" type="text" autocomplete="off" placeholder="main" required>
+          </label>
+          <label>
+            <span>Notes folder</span>
+            <input id="folderInput" type="text" autocomplete="off" placeholder="notes">
+          </label>
+        </div>
+
+        <p class="help-text">
+          Use a fine-grained GitHub token scoped to this repo with Contents read/write. The token is stored only in this browser.
+        </p>
+
+        <menu class="dialog-actions">
+          <button id="clearTokenButton" class="secondary-button danger" type="button">Forget token</button>
+          <button class="secondary-button" value="cancel" type="submit">Cancel</button>
+          <button id="saveSettingsButton" class="primary-button" value="default" type="submit">Save setup</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="conflictDialog" class="dialog compact">
+      <form method="dialog">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Conflict</p>
+            <h2>Remote note changed</h2>
+          </div>
+        </header>
+        <p class="help-text">
+          GitHub has a newer version of this file than the copy you edited. Choose how to continue.
+        </p>
+        <menu class="dialog-actions">
+          <button id="conflictReload" class="secondary-button" value="reload" type="submit">Reload remote</button>
+          <button id="conflictCopy" class="secondary-button" value="copy" type="submit">Save as copy</button>
+          <button id="conflictOverwrite" class="primary-button" value="overwrite" type="submit">Overwrite</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>
