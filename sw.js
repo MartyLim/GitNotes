@@ -1,7 +1,8 @@
-const CACHE_NAME = "gitnotes-shell-v12";
+const CACHE_NAME = "gitnotes-shell-v15";
 const APP_SHELL = [
   "./",
   "./index.html",
+  "./landing/",
   "./styles.css",
   "./src/app.js",
   "./manifest.webmanifest",

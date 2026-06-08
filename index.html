@@ -14,7 +14,76 @@
     <link rel="stylesheet" href="./styles.css">
   </head>
   <body>
-    <div id="app" class="app-shell">
+    <main id="landingPage" class="landing-page" hidden>
+      <nav class="landing-nav" aria-label="Intro">
+        <a class="landing-brand" href="./" aria-label="GitNotes home">
+          <img src="./assets/icon.svg" alt="">
+          <span>GitNotes</span>
+        </a>
+        <button id="landingSetupButton" class="settings-button" type="button">Set up sync</button>
+      </nav>
+
+      <section class="landing-hero">
+        <div class="landing-copy">
+          <p class="eyebrow">GitHub-backed Markdown notes</p>
+          <h1>GitNotes</h1>
+          <p class="landing-lede">
+            A lightweight notes app for people who want plain Markdown files, GitHub as the source of truth, and a clean browser interface that also works well as a mobile PWA.
+          </p>
+          <div class="landing-actions">
+            <button id="landingHeroSetupButton" class="primary-button" type="button">Set up sync</button>
+            <a class="landing-link" href="https://docs.github.com/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token" target="_blank" rel="noreferrer">Token setup docs</a>
+          </div>
+        </div>
+
+        <div class="landing-visual" aria-label="GitNotes preview">
+          <img src="./assets/icon.svg" alt="">
+          <div class="landing-preview">
+            <div class="preview-sidebar">
+              <span>notes</span>
+              <strong>ideas.md</strong>
+              <strong>docs/setup.md</strong>
+              <strong>journal/today.md</strong>
+            </div>
+            <div class="preview-editor">
+              <span># Today</span>
+              <span>- Draft in Markdown</span>
+              <span>- Pull changes from GitHub</span>
+              <span>- Push when ready</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="landing-details" aria-label="GitNotes features">
+        <article>
+          <h2>Plain files</h2>
+          <p>Your notes stay as `.md` files in a repository you control, instead of disappearing into a proprietary workspace.</p>
+        </article>
+        <article>
+          <h2>Static app</h2>
+          <p>No backend service. GitNotes reads and writes through the GitHub Contents API using a token stored in this browser.</p>
+        </article>
+        <article>
+          <h2>Offline drafts</h2>
+          <p>Local browser storage keeps drafts available when you lose connection, then Push sends pending files back to GitHub.</p>
+        </article>
+      </section>
+
+      <section class="landing-setup" aria-label="Setup requirements">
+        <div>
+          <p class="eyebrow">Setup</p>
+          <h2>Connect a repository once.</h2>
+        </div>
+        <ol>
+          <li>Create a fine-grained GitHub token with repository Contents read/write access.</li>
+          <li>Enter the owner, repo name, branch, and optional root directory.</li>
+          <li>Start editing Markdown notes from the browser or installed PWA.</li>
+        </ol>
+      </section>
+    </main>
+
+    <div id="app" class="app-shell" hidden>
       <aside class="sidebar" aria-label="Notes">
         <header class="sidebar-header">
           <div>
@@ -52,12 +121,6 @@
           </div>
         </header>
 
-        <section id="emptyState" class="empty-state">
-          <h2>GitHub-backed notes</h2>
-          <p>Connect a repo, then create or edit Markdown notes. This is a lightweight web interface that keeps your notes in GitHub.</p>
-          <button id="emptySetupButton" class="primary-button" type="button">Set up sync</button>
-        </section>
-
         <section id="editorState" class="editor-state" hidden>
           <textarea id="noteEditor" spellcheck="true" placeholder="Start writing..."></textarea>
           <footer class="editor-footer">
@@ -75,7 +138,7 @@
             <p class="eyebrow">Sync setup</p>
             <h2>GitHub repository</h2>
           </div>
-          <button class="icon-button" value="cancel" type="submit" aria-label="Close">x</button>
+          <button class="icon-button" value="cancel" type="submit" formnovalidate aria-label="Close">x</button>
         </header>
 
         <div class="form-grid">
@@ -109,7 +172,7 @@
 
         <menu class="dialog-actions">
           <button id="clearTokenButton" class="secondary-button danger" type="button">Forget token</button>
-          <button class="secondary-button" value="cancel" type="submit">Cancel</button>
+          <button class="secondary-button" value="cancel" type="submit" formnovalidate>Cancel</button>
           <button id="saveSettingsButton" class="primary-button" value="default" type="submit">Save</button>
         </menu>
       </form>
@@ -122,7 +185,7 @@
             <p class="eyebrow">New item</p>
             <h2>Create in repository</h2>
           </div>
-          <button class="icon-button" value="cancel" type="submit" aria-label="Close">x</button>
+          <button class="icon-button" value="cancel" type="submit" formnovalidate aria-label="Close">x</button>
         </header>
 
         <div class="segmented-control" role="group" aria-label="Item type">
@@ -149,7 +212,7 @@
         <p id="newItemError" class="form-error" role="alert" hidden></p>
 
         <menu class="dialog-actions">
-          <button class="secondary-button" value="cancel" type="submit">Cancel</button>
+          <button class="secondary-button" value="cancel" type="submit" formnovalidate>Cancel</button>
           <button id="createItemButton" class="primary-button" value="default" type="submit">Create</button>
         </menu>
       </form>
@@ -162,7 +225,7 @@
             <p class="eyebrow">Files</p>
             <h2>Open note</h2>
           </div>
-          <button class="icon-button" value="cancel" type="submit" aria-label="Close">x</button>
+          <button class="icon-button" value="cancel" type="submit" formnovalidate aria-label="Close">x</button>
         </header>
 
         <label class="search dialog-search">
@@ -200,14 +263,14 @@
             <p class="eyebrow">Review changes</p>
             <h2 id="saveConfirmTitle">Push to GitHub</h2>
           </div>
-          <button class="icon-button" value="cancel" type="submit" aria-label="Close">x</button>
+          <button class="icon-button" value="cancel" type="submit" formnovalidate aria-label="Close">x</button>
         </header>
 
         <div id="saveSummary" class="save-summary"></div>
         <div id="savePreview" class="change-preview"></div>
 
         <menu class="dialog-actions">
-          <button id="cancelSaveButton" class="secondary-button" value="cancel" type="submit">Cancel</button>
+          <button id="cancelSaveButton" class="secondary-button" value="cancel" type="submit" formnovalidate>Cancel</button>
           <button id="confirmSaveButton" class="primary-button" value="default" type="submit">Confirm</button>
         </menu>
       </form>

@@ -6,6 +6,7 @@ const TOKEN_KEY = "token";
 const NOTES_KEY = "notes";
 const FOLDERS_KEY = "folders";
 const SELECTED_KEY = "selectedPath";
+const ROUTE_INTENT_KEY = "gitnotes-route";
 const MASKED_TOKEN = "****************";
 
 const state = {
@@ -21,9 +22,11 @@ const state = {
 };
 
 const els = {
+  landingPage: document.querySelector("#landingPage"),
+  landingSetupButton: document.querySelector("#landingSetupButton"),
+  landingHeroSetupButton: document.querySelector("#landingHeroSetupButton"),
   app: document.querySelector("#app"),
   settingsButton: document.querySelector("#settingsButton"),
-  emptySetupButton: document.querySelector("#emptySetupButton"),
   settingsDialog: document.querySelector("#settingsDialog"),
   settingsForm: document.querySelector("#settingsForm"),
   tokenInput: document.querySelector("#tokenInput"),
@@ -52,7 +55,6 @@ const els = {
   noteList: document.querySelector("#noteList"),
   titleInput: document.querySelector("#titleInput"),
   noteEditor: document.querySelector("#noteEditor"),
-  emptyState: document.querySelector("#emptyState"),
   editorState: document.querySelector("#editorState"),
   syncStatus: document.querySelector("#syncStatus"),
   syncText: document.querySelector("#syncText"),
@@ -81,20 +83,20 @@ async function init() {
   bindEvents();
   await loadState();
   await registerServiceWorker();
+  syncRouteToSetup({ routeIntent: takeRouteIntent() });
   render();
 
   if (hasSetupFields()) {
     syncFromRemote({ silent: true }).catch((error) => {
       setSync("error", readableError(error));
     });
-  } else {
-    openSettings();
   }
 }
 
 function bindEvents() {
+  els.landingSetupButton.addEventListener("click", openSettings);
+  els.landingHeroSetupButton.addEventListener("click", openSettings);
   els.settingsButton.addEventListener("click", openSettings);
-  els.emptySetupButton.addEventListener("click", openSettings);
   els.searchInput.addEventListener("input", renderNotes);
   els.mobileSearchInput.addEventListener("input", renderNotes);
   els.mobileFilesButton.addEventListener("click", openFilePicker);
@@ -1545,7 +1547,6 @@ function createNoteButton(note, depth) {
 function renderEditor() {
   const hasSetup = hasSetupFields();
   const hasNote = Boolean(state.selectedNote);
-  els.emptyState.hidden = hasSetup;
   els.editorState.hidden = !hasSetup || !hasNote;
   els.titleInput.disabled = !hasNote;
   els.noteEditor.disabled = !hasNote;
@@ -1580,7 +1581,43 @@ function renderMeta() {
 }
 
 function renderLayout() {
-  els.app.classList.toggle("is-list-only", hasSetupFields() && !state.selectedNote);
+  const hasSetup = hasSetupFields();
+  syncRouteToSetup();
+  const isLanding = isLandingRoute();
+  els.landingPage.hidden = !isLanding;
+  els.app.hidden = isLanding || !hasSetup;
+  els.app.classList.toggle("is-list-only", hasSetup && !isLanding && !state.selectedNote);
+}
+
+function syncRouteToSetup({ routeIntent = "" } = {}) {
+  const hasSetup = hasSetupFields();
+  if (routeIntent === "landing") {
+    window.history.replaceState(null, "", landingRoute());
+    return;
+  }
+
+  if (!hasSetup && !isLandingRoute()) {
+    window.history.replaceState(null, "", landingRoute());
+  }
+}
+
+function takeRouteIntent() {
+  const routeIntent = sessionStorage.getItem(ROUTE_INTENT_KEY) || "";
+  sessionStorage.removeItem(ROUTE_INTENT_KEY);
+  return routeIntent;
+}
+
+function isLandingRoute() {
+  return /\/landing\/?$/.test(window.location.pathname);
+}
+
+function landingRoute() {
+  return `${appRoute()}landing/`;
+}
+
+function appRoute() {
+  const path = window.location.pathname;
+  return path.replace(/landing\/?$/, "").replace(/index\.html$/, "");
 }
 
 function setSync(kind, text) {
@@ -1612,7 +1649,7 @@ function debugState(label, details = {}) {
     noteCount: state.notes.length,
     selectedPath: state.selectedPath,
     selectedLoaded: Boolean(state.selectedNote?.loaded),
-    emptyHidden: els.emptyState.hidden,
+    landingHidden: els.landingPage.hidden,
     editorHidden: els.editorState.hidden,
     ...details
   });
