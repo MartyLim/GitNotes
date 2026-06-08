@@ -388,6 +388,10 @@ textarea {
   width: min(480px, calc(100vw - 28px));
 }
 
+#saveConfirmDialog {
+  width: min(860px, calc(100vw - 28px));
+}
+
 .dialog-search {
   display: block;
   margin-top: 16px;
@@ -565,18 +569,129 @@ textarea {
 }
 
 .change-preview {
-  max-height: 320px;
+  display: grid;
+  gap: 10px;
+  max-height: min(54dvh, 520px);
   overflow: auto;
   margin: 16px 0 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: #202124;
-  color: #f8f4eb;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
   font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 0.82rem;
-  line-height: 1.5;
-  padding: 12px;
+  line-height: 1.45;
+  padding: 0;
+}
+
+.diff-empty {
+  margin: 0;
+  color: var(--muted);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.diff-file {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fffdf8;
+}
+
+.diff-file.is-excluded {
+  opacity: 0.56;
+}
+
+.diff-file-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 42px;
+  padding: 8px 10px;
+  background: #f4f0e7;
+  cursor: pointer;
+}
+
+.diff-file-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 850;
+}
+
+.diff-file-meta,
+.diff-file-note {
+  color: var(--muted);
+}
+
+.diff-file-action {
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-strong);
+  color: var(--ink);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 0 10px;
+}
+
+.diff-file-note,
+.diff-conflict-controls {
+  padding: 8px 10px;
+  border-top: 1px solid var(--line);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.82rem;
+}
+
+.diff-conflict-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.diff-conflict-controls label {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-weight: 800;
+}
+
+.diff-lines {
+  border-top: 1px solid var(--line);
+  background: #202124;
+  color: #f8f4eb;
+  padding: 6px 0;
+}
+
+.diff-line {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  min-height: 21px;
   white-space: pre-wrap;
+}
+
+.diff-line.is-add {
+  background: rgba(35, 119, 76, 0.26);
+  color: #dff7e8;
+}
+
+.diff-line.is-remove {
+  background: rgba(163, 58, 52, 0.28);
+  color: #ffe1de;
+}
+
+.diff-line.is-context {
+  color: #c9c3b8;
+}
+
+.diff-marker {
+  user-select: none;
+  text-align: center;
+}
+
+.diff-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .dialog-actions {

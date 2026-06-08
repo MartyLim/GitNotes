@@ -1,4 +1,4 @@
-const CACHE_NAME = "gitnotes-shell-v9";
+const CACHE_NAME = "gitnotes-shell-v12";
 const APP_SHELL = [
   "./",
   "./index.html",

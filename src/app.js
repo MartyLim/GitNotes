@@ -65,6 +65,8 @@ const els = {
   conflictOverwrite: document.querySelector("#conflictOverwrite"),
   saveConfirmDialog: document.querySelector("#saveConfirmDialog"),
   saveConfirmForm: document.querySelector("#saveConfirmForm"),
+  saveConfirmTitle: document.querySelector("#saveConfirmTitle"),
+  confirmSaveButton: document.querySelector("#confirmSaveButton"),
   cancelSaveButton: document.querySelector("#cancelSaveButton"),
   saveSummary: document.querySelector("#saveSummary"),
   savePreview: document.querySelector("#savePreview")
@@ -98,7 +100,7 @@ function bindEvents() {
   els.mobileFilesButton.addEventListener("click", openFilePicker);
   els.newNoteButton.addEventListener("click", openNewItemDialog);
   els.syncButton.addEventListener("click", () => syncFromRemote());
-  els.saveButton.addEventListener("click", () => saveCurrentNote());
+  els.saveButton.addEventListener("click", () => saveAllNotes());
   els.deleteButton.addEventListener("click", deleteCurrentNote);
   els.clearTokenButton.addEventListener("click", clearToken);
 
@@ -305,52 +307,147 @@ async function syncFromRemote({ silent = false } = {}) {
 
   setSync("busy", "Syncing");
   const remoteFiles = await listMarkdownFiles();
-  state.folders = remoteFiles.folders;
-  const markdownFiles = remoteFiles.files;
-  const localByPath = new Map(state.notes.map((note) => [note.path, note]));
-  const merged = [];
+  const plan = await buildPullPlan(remoteFiles, { includeDiff: !silent });
 
-  for (const file of markdownFiles) {
-    const local = localByPath.get(file.path);
-    const hasLocalChanges = Boolean(local?.dirty || local?.pending);
-    const remoteChanged = Boolean(local?.sha && local.sha !== file.sha);
-    const keepLocalContent = Boolean(local && (hasLocalChanges || !remoteChanged));
-    merged.push({
-      id: local?.id || crypto.randomUUID(),
-      path: file.path,
-      title: titleFromPath(file.path),
-      sha: file.sha,
-      remoteSha: file.sha,
-      content: keepLocalContent ? local.content || "" : "",
-      savedContent: keepLocalContent ? local.savedContent ?? (hasLocalChanges ? "" : local.content || "") : "",
-      loaded: keepLocalContent && Boolean(local?.loaded),
-      dirty: Boolean(local?.dirty),
-      pending: Boolean(local?.pending),
-      deleted: false,
-      updatedAt: local?.updatedAt || Date.now()
+  if (!silent && plan.changes.length) {
+    const review = await confirmDiff({
+      title: "Pull from GitHub",
+      confirmLabel: "Confirm pull",
+      changes: plan.changes,
+      emptyMessage: "No remote changes.",
+      mode: "pull"
     });
-  }
-
-  for (const local of state.notes) {
-    if ((local.dirty || local.pending) && !merged.some((note) => note.path === local.path)) {
-      merged.unshift(local);
+    if (!review.confirmed) {
+      setSync("idle", "Pull cancelled");
+      return;
     }
+    plan.changes = review.changes;
+  } else if (!silent && !plan.changes.length) {
+    showToast("No remote changes.");
   }
 
-  state.notes = sortNotes(merged);
-  state.selectedNote = state.notes.find((note) => note.path === state.selectedPath) || state.notes[0] || null;
-  state.selectedPath = state.selectedNote?.path || "";
+  applyPullPlan(plan, plan.changes);
   await persistNotes();
 
   if (state.selectedNote && !state.selectedNote.loaded && !state.selectedNote.pending) {
     await loadNoteContent(state.selectedNote);
   }
 
-  debugState("sync complete", { remoteFileCount: markdownFiles.length, folderCount: state.folders.length });
+  debugState("sync complete", { remoteFileCount: remoteFiles.files.length, folderCount: state.folders.length });
   render();
-  await syncPendingNotes();
   setSync("ok", `Synced ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`);
   if (!silent) showToast("Synced with GitHub.");
+}
+
+async function buildPullPlan(remoteFiles, { includeDiff = true } = {}) {
+  const markdownFiles = remoteFiles.files;
+  const localByPath = new Map(state.notes.map((note) => [note.path, note]));
+  const merged = [];
+  const changes = [];
+
+  for (const file of markdownFiles) {
+    const local = localByPath.get(file.path);
+    const hasLocalChanges = Boolean(local?.dirty || local?.pending);
+    const remoteChanged = Boolean(local?.sha && local.sha !== file.sha);
+    const isNewRemote = !local;
+    const shouldFetchRemote = includeDiff && (isNewRemote || remoteChanged);
+    const remoteContent = shouldFetchRemote ? await fetchMarkdownContent(file.path) : "";
+    const keepLocalContent = Boolean(local && (!remoteChanged || (!includeDiff && hasLocalChanges)));
+
+    if (includeDiff && (isNewRemote || remoteChanged)) {
+      changes.push(createDiffChange({
+        path: file.path,
+        before: local?.savedContent ?? local?.content ?? "",
+        after: remoteContent,
+        status: isNewRemote ? "added" : hasLocalChanges ? "remote changed" : "modified",
+        note: hasLocalChanges ? "Local unsynced changes conflict with remote." : "",
+        conflict: hasLocalChanges,
+        localContent: local?.content ?? "",
+        remoteContent
+      }));
+    }
+
+    merged.push({
+      id: local?.id || crypto.randomUUID(),
+      path: file.path,
+      title: titleFromPath(file.path),
+      sha: file.sha,
+      remoteSha: file.sha,
+      content: keepLocalContent ? local.content || "" : remoteContent,
+      savedContent: keepLocalContent ? local.savedContent ?? (hasLocalChanges ? "" : local.content || "") : remoteContent,
+      loaded: keepLocalContent ? Boolean(local?.loaded) : Boolean(remoteContent),
+      dirty: keepLocalContent ? Boolean(local?.dirty) : false,
+      pending: keepLocalContent ? Boolean(local?.pending) : false,
+      deleted: false,
+      updatedAt: local?.updatedAt || Date.now()
+    });
+  }
+
+  for (const local of state.notes) {
+    const missingRemote = !markdownFiles.some((file) => file.path === local.path);
+    if ((local.dirty || local.pending) && missingRemote && !includeDiff) {
+      merged.unshift(local);
+    } else if ((local.dirty || local.pending) && missingRemote && includeDiff) {
+      changes.push(createDiffChange({
+        path: local.path,
+        before: local.savedContent ?? local.content ?? "",
+        after: "",
+        status: "deleted remotely",
+        note: "Local unsynced changes conflict with remote deletion.",
+        conflict: true,
+        localContent: local.content ?? "",
+        remoteContent: "",
+        noteId: local.id
+      }));
+    } else if (includeDiff && !local.dirty && !local.pending && missingRemote) {
+      changes.push(createDiffChange({
+        path: local.path,
+        before: local.savedContent ?? local.content ?? "",
+        after: "",
+        status: "deleted"
+      }));
+    }
+  }
+
+  return {
+    folders: remoteFiles.folders,
+    notes: sortNotes(merged),
+    changes
+  };
+}
+
+function applyPullPlan(plan, changes = []) {
+  state.folders = plan.folders;
+  state.notes = plan.notes;
+  for (const change of changes) {
+    if (!change.conflict || change.mode !== "merge") continue;
+    let note = state.notes.find((item) => item.path === change.path);
+    if (!note) {
+      note = {
+        id: change.noteId || crypto.randomUUID(),
+        path: change.path,
+        title: titleFromPath(change.path),
+        sha: "",
+        remoteSha: "",
+        content: "",
+        savedContent: "",
+        loaded: true,
+        dirty: true,
+        pending: true,
+        deleted: false,
+        updatedAt: Date.now()
+      };
+      state.notes.unshift(note);
+    }
+    note.content = buildMergedConflictContent(change.path, change.localContent, change.remoteContent);
+    note.savedContent = change.remoteContent;
+    note.loaded = true;
+    note.dirty = true;
+    note.pending = true;
+    note.updatedAt = Date.now();
+  }
+  state.selectedNote = state.notes.find((note) => note.path === state.selectedPath) || state.notes[0] || null;
+  state.selectedPath = state.selectedNote?.path || "";
 }
 
 async function listMarkdownFiles({ allowMissingDirectory = true } = {}) {
@@ -421,6 +518,14 @@ async function loadNoteContent(note) {
   note.updatedAt = Date.now();
   await persistNotes();
   setSync("ok", "Note loaded");
+}
+
+async function fetchMarkdownContent(path) {
+  const response = await githubFetch(apiUrl(`/repos/${state.config.owner}/${state.config.repo}/contents/${encodePath(path)}`, {
+    ref: state.config.branch
+  }));
+  const file = await response.json();
+  return decodeBase64(file.content || "");
 }
 
 function openNewItemDialog() {
@@ -611,8 +716,15 @@ async function saveCurrentNote({ overwrite = false } = {}) {
   }
 
   const nextDraft = buildSaveDraft();
-  const confirmed = await confirmSave(nextDraft);
-  if (!confirmed) return;
+  const review = await confirmSave(nextDraft);
+  if (!review.confirmed) return;
+  if (review.changes[0]?.excluded) {
+    revertPushChange(review.changes[0], nextDraft);
+    await persistNotes();
+    render();
+    showToast("File changes undone.");
+    return;
+  }
 
   applySaveDraft(nextDraft);
   state.selectedPath = state.selectedNote.path;
@@ -629,6 +741,73 @@ async function saveCurrentNote({ overwrite = false } = {}) {
   }
 
   await pushNote(state.selectedNote, { overwrite });
+  render();
+}
+
+async function saveAllNotes() {
+  if (!hasSetupFields()) {
+    if (state.selectedNote && state.dirty) await saveDraftOnly();
+    openSettings();
+    return;
+  }
+
+  const selectedDraft = state.selectedNote && state.dirty ? buildSaveDraft() : null;
+  const pendingNotes = state.notes.filter((note) => note !== state.selectedNote && (note.pending || note.dirty));
+  const selectedPending = state.selectedNote && !state.dirty && (state.selectedNote.pending || state.selectedNote.dirty)
+    ? state.selectedNote
+    : null;
+
+  if (!selectedDraft && !selectedPending && !pendingNotes.length) {
+    showToast("Nothing to push.");
+    return;
+  }
+
+  const changes = buildPushChanges({
+    selectedDraft,
+    selectedPending,
+    pendingNotes
+  });
+  const review = await confirmDiff({
+    title: "Push to GitHub",
+    confirmLabel: "Confirm push",
+    changes,
+    emptyMessage: "No local changes.",
+    mode: "push"
+  });
+  if (!review.confirmed) return;
+
+  const activeChanges = review.changes.filter((change) => !change.excluded);
+  const revertedChanges = review.changes.filter((change) => change.excluded);
+  for (const change of revertedChanges) {
+    revertPushChange(change, selectedDraft);
+  }
+
+  if (!activeChanges.length) {
+    await persistNotes();
+    render();
+    showToast("No files left to push.");
+    return;
+  }
+
+  if (selectedDraft && activeChanges.some((change) => change.draft === selectedDraft)) {
+    applySaveDraft(selectedDraft);
+    state.selectedPath = state.selectedNote.path;
+    state.selectedNote.dirty = true;
+    state.selectedNote.pending = true;
+    state.selectedNote.updatedAt = Date.now();
+    state.dirty = false;
+  }
+
+  await persistNotes();
+
+  if (!state.online) {
+    setSync("error", "Saved locally");
+    showToast("Saved locally. It will push when online.");
+    render();
+    return;
+  }
+
+  await syncPendingNotes({ showCompleteToast: true });
   render();
 }
 
@@ -668,26 +847,115 @@ function applySaveDraft(draft) {
   }
 }
 
+function revertPushChange(change, selectedDraft = null) {
+  if (change.draft && change.draft === selectedDraft && state.selectedNote) {
+    revertNoteToSaved(state.selectedNote, selectedDraft);
+    return;
+  }
+
+  const note = state.notes.find((item) => item.id === change.noteId || item.path === change.path);
+  if (!note) return;
+  revertNoteToSaved(note);
+}
+
+function revertNoteToSaved(note, draft = null) {
+  if (!note.sha && !draft?.previousSha) {
+    state.notes = state.notes.filter((item) => item.id !== note.id);
+    state.selectedNote = state.notes[0] || null;
+    state.selectedPath = state.selectedNote?.path || "";
+    state.dirty = false;
+    return;
+  }
+
+  if (draft?.previousPath) {
+    note.path = draft.previousPath;
+    note.title = titleFromPath(draft.previousPath);
+    note.sha = draft.previousSha;
+    note.remoteSha = draft.previousSha;
+  }
+
+  note.content = draft?.previousContent ?? note.savedContent ?? "";
+  note.title = titleFromPath(note.path);
+  note.previousPath = "";
+  note.previousSha = "";
+  note.dirty = false;
+  note.pending = false;
+  note.loaded = true;
+  note.updatedAt = Date.now();
+
+  if (state.selectedNote?.id === note.id) {
+    state.selectedPath = note.path;
+    state.dirty = false;
+  }
+}
+
+function buildMergedConflictContent(path, localContent, remoteContent) {
+  return [
+    `<<<<<<< local (${path})`,
+    localContent,
+    "=======",
+    remoteContent,
+    ">>>>>>> remote",
+    ""
+  ].join("\n");
+}
+
 function confirmSave(draft) {
-  renderSaveConfirmation(draft);
+  return confirmDiff({
+    title: "Push to GitHub",
+    confirmLabel: "Confirm push",
+    changes: [
+      createDiffChange({
+        path: draft.nextPath,
+        previousPath: draft.isRename ? draft.previousPath : "",
+        before: draft.previousContent,
+        after: draft.nextContent,
+        status: draft.isNew ? "added" : draft.isRename ? "renamed" : "modified",
+        draft,
+        noteId: state.selectedNote?.id || ""
+      })
+    ],
+    emptyMessage: "No content changes.",
+    mode: "push"
+  });
+}
+
+function confirmDiff({ title, confirmLabel, changes, emptyMessage, mode }) {
+  renderDiffConfirmation({ title, confirmLabel, changes, emptyMessage, mode });
   return new Promise((resolve) => {
     const onClose = () => {
       els.saveConfirmDialog.removeEventListener("close", onClose);
-      resolve(els.saveConfirmDialog.returnValue === "confirm");
+      resolve({
+        confirmed: els.saveConfirmDialog.returnValue === "confirm",
+        changes
+      });
     };
     els.saveConfirmDialog.addEventListener("close", onClose);
     els.saveConfirmDialog.showModal();
   });
 }
 
-function renderSaveConfirmation(draft) {
+function renderDiffConfirmation({ title, confirmLabel, changes, emptyMessage, mode }) {
+  els.saveConfirmTitle.textContent = title;
+  els.confirmSaveButton.textContent = confirmLabel;
+  renderDiffSummary(changes);
+  renderDiffFiles(changes, emptyMessage, mode);
+}
+
+function renderDiffSummary(changes) {
   els.saveSummary.innerHTML = "";
+  const activeChanges = changes.filter((change) => !change.excluded);
+  const totals = activeChanges.reduce((acc, change) => {
+    acc.added += change.added;
+    acc.removed += change.removed;
+    return acc;
+  }, { added: 0, removed: 0 });
 
   const rows = [
-    ["Action", draft.isNew ? "Create file" : draft.isRename ? "Rename and update file" : "Update file"],
-    ["Path", draft.nextPath]
+    ["Files", String(activeChanges.length)],
+    ["Added", `+${totals.added}`],
+    ["Removed", `-${totals.removed}`]
   ];
-  if (draft.isRename) rows.splice(1, 0, ["From", draft.previousPath]);
 
   for (const [label, value] of rows) {
     const row = document.createElement("div");
@@ -698,34 +966,281 @@ function renderSaveConfirmation(draft) {
     row.append(labelEl, valueEl);
     els.saveSummary.append(row);
   }
-
-  els.savePreview.textContent = buildChangePreview(draft.previousContent, draft.nextContent);
 }
 
-function buildChangePreview(before, after) {
-  if (before === after) return "No content changes.";
+function buildPushChanges({ selectedDraft, selectedPending, pendingNotes }) {
+  const changes = [];
 
-  const beforeLines = before.split("\n");
-  const afterLines = after.split("\n");
-  const maxLines = Math.max(beforeLines.length, afterLines.length);
-  const output = [];
-  let changedLines = 0;
-
-  for (let index = 0; index < maxLines; index += 1) {
-    const oldLine = beforeLines[index];
-    const newLine = afterLines[index];
-    if (oldLine === newLine) continue;
-
-    changedLines += 1;
-    if (changedLines > 80) {
-      output.push("... preview truncated");
-      break;
-    }
-    if (oldLine !== undefined) output.push(`- ${oldLine}`);
-    if (newLine !== undefined) output.push(`+ ${newLine}`);
+  if (selectedDraft) {
+    changes.push(createDiffChange({
+      path: selectedDraft.nextPath,
+      previousPath: selectedDraft.isRename ? selectedDraft.previousPath : "",
+      before: selectedDraft.previousContent,
+      after: selectedDraft.nextContent,
+      status: selectedDraft.isNew ? "added" : selectedDraft.isRename ? "renamed" : "modified",
+      draft: selectedDraft,
+      noteId: state.selectedNote?.id || ""
+    }));
+  } else if (selectedPending) {
+    changes.push(createDiffChange({
+      path: selectedPending.path,
+      before: selectedPending.savedContent ?? "",
+      after: selectedPending.content ?? "",
+      status: selectedPending.sha ? "modified" : "added",
+      noteId: selectedPending.id
+    }));
   }
 
-  return output.join("\n") || "No content changes.";
+  for (const note of pendingNotes) {
+    changes.push(createDiffChange({
+      path: note.path,
+      previousPath: note.previousPath || "",
+      before: note.savedContent ?? "",
+      after: note.content ?? "",
+      status: note.sha ? "modified" : "added",
+      noteId: note.id
+    }));
+  }
+
+  return changes;
+}
+
+function createDiffChange({
+  path,
+  previousPath = "",
+  before,
+  after,
+  status,
+  note = "",
+  conflict = false,
+  localContent = "",
+  remoteContent = "",
+  draft = null,
+  noteId = ""
+}) {
+  const lines = diffLines(before, after);
+  return {
+    path,
+    previousPath,
+    status,
+    note,
+    conflict,
+    localContent,
+    remoteContent,
+    draft,
+    noteId,
+    mode: conflict ? "overwrite" : "",
+    excluded: false,
+    added: lines.filter((line) => line.type === "add").length,
+    removed: lines.filter((line) => line.type === "remove").length,
+    lines
+  };
+}
+
+function renderDiffFiles(changes, emptyMessage, mode) {
+  els.savePreview.innerHTML = "";
+  if (!changes.length) {
+    const empty = document.createElement("p");
+    empty.className = "diff-empty";
+    empty.textContent = emptyMessage;
+    els.savePreview.append(empty);
+    return;
+  }
+
+  for (const change of changes) {
+    els.savePreview.append(createDiffFile(change, mode, changes));
+  }
+}
+
+function createDiffFile(change, mode, changes) {
+  const details = document.createElement("details");
+  details.className = "diff-file";
+  details.open = true;
+
+  const summary = document.createElement("summary");
+  summary.className = "diff-file-header";
+
+  const title = document.createElement("span");
+  title.className = "diff-file-title";
+  title.textContent = change.path;
+
+  const meta = document.createElement("span");
+  meta.className = "diff-file-meta";
+  meta.textContent = `${change.status}  +${change.added} -${change.removed}`;
+
+  summary.append(title, meta);
+
+  if (mode === "push") {
+    const undoButton = document.createElement("button");
+    undoButton.type = "button";
+    undoButton.className = "diff-file-action";
+    undoButton.textContent = change.excluded ? "Keep change" : "Undo file";
+    undoButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      change.excluded = !change.excluded;
+      details.classList.toggle("is-excluded", change.excluded);
+      undoButton.textContent = change.excluded ? "Keep change" : "Undo file";
+      renderDiffSummary(changes);
+    });
+    summary.append(undoButton);
+  }
+
+  details.append(summary);
+
+  if (change.previousPath) {
+    const previous = document.createElement("div");
+    previous.className = "diff-file-note";
+    previous.textContent = `from ${change.previousPath}`;
+    details.append(previous);
+  }
+
+  if (change.note) {
+    const note = document.createElement("div");
+    note.className = "diff-file-note";
+    note.textContent = change.note;
+    details.append(note);
+  }
+
+  if (mode === "pull" && change.conflict) {
+    details.append(createPullConflictOptions(change));
+  }
+
+  const lines = document.createElement("div");
+  lines.className = "diff-lines";
+  if (!change.lines.length) {
+    const row = document.createElement("div");
+    row.className = "diff-line";
+    row.textContent = "No content changes.";
+    lines.append(row);
+  }
+
+  for (const line of change.lines) {
+    lines.append(createDiffLine(line));
+  }
+
+  details.append(lines);
+  return details;
+}
+
+function createPullConflictOptions(change) {
+  const controls = document.createElement("div");
+  controls.className = "diff-conflict-controls";
+
+  for (const [value, label] of [["overwrite", "Overwrite local"], ["merge", "Merge"]]) {
+    const option = document.createElement("label");
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = `pull-${change.path}`;
+    input.value = value;
+    input.checked = change.mode === value;
+    input.addEventListener("change", () => {
+      change.mode = value;
+    });
+
+    const text = document.createElement("span");
+    text.textContent = label;
+    option.append(input, text);
+    controls.append(option);
+  }
+
+  return controls;
+}
+
+function createDiffLine(line) {
+  const row = document.createElement("div");
+  row.className = `diff-line is-${line.type}`;
+
+  const marker = document.createElement("span");
+  marker.className = "diff-marker";
+  marker.textContent = line.type === "add" ? "+" : line.type === "remove" ? "-" : " ";
+
+  const content = document.createElement("span");
+  content.className = "diff-content";
+  content.textContent = line.value;
+
+  row.append(marker, content);
+  return row;
+}
+
+function diffLines(before, after) {
+  if (before === after) return [];
+
+  const oldLines = splitDiffLines(before);
+  const newLines = splitDiffLines(after);
+  const table = Array.from({ length: oldLines.length + 1 }, () => Array(newLines.length + 1).fill(0));
+
+  for (let oldIndex = oldLines.length - 1; oldIndex >= 0; oldIndex -= 1) {
+    for (let newIndex = newLines.length - 1; newIndex >= 0; newIndex -= 1) {
+      table[oldIndex][newIndex] = oldLines[oldIndex] === newLines[newIndex]
+        ? table[oldIndex + 1][newIndex + 1] + 1
+        : Math.max(table[oldIndex + 1][newIndex], table[oldIndex][newIndex + 1]);
+    }
+  }
+
+  const lines = [];
+  let oldIndex = 0;
+  let newIndex = 0;
+
+  while (oldIndex < oldLines.length && newIndex < newLines.length) {
+    if (oldLines[oldIndex] === newLines[newIndex]) {
+      lines.push({ type: "context", value: oldLines[oldIndex] });
+      oldIndex += 1;
+      newIndex += 1;
+    } else if (table[oldIndex + 1][newIndex] >= table[oldIndex][newIndex + 1]) {
+      lines.push({ type: "remove", value: oldLines[oldIndex] });
+      oldIndex += 1;
+    } else {
+      lines.push({ type: "add", value: newLines[newIndex] });
+      newIndex += 1;
+    }
+  }
+
+  while (oldIndex < oldLines.length) {
+    lines.push({ type: "remove", value: oldLines[oldIndex] });
+    oldIndex += 1;
+  }
+  while (newIndex < newLines.length) {
+    lines.push({ type: "add", value: newLines[newIndex] });
+    newIndex += 1;
+  }
+
+  return trimDiffContext(lines);
+}
+
+function splitDiffLines(value) {
+  if (!value) return [];
+  return value.replace(/\n$/, "").split("\n");
+}
+
+function trimDiffContext(lines) {
+  const output = [];
+  let skipped = 0;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.type !== "context") {
+      if (skipped) {
+        output.push({ type: "context", value: `... ${skipped} unchanged line${skipped === 1 ? "" : "s"}` });
+        skipped = 0;
+      }
+      output.push(line);
+      continue;
+    }
+
+    const nearChange = lines.slice(Math.max(0, index - 2), index + 3).some((item) => item.type !== "context");
+    if (nearChange) {
+      if (skipped) {
+        output.push({ type: "context", value: `... ${skipped} unchanged line${skipped === 1 ? "" : "s"}` });
+        skipped = 0;
+      }
+      output.push(line);
+    } else {
+      skipped += 1;
+    }
+  }
+
+  return output;
 }
 
 async function pushNote(note, { overwrite = false } = {}) {
@@ -812,11 +1327,15 @@ function showConflictDialog() {
   });
 }
 
-async function syncPendingNotes() {
+async function syncPendingNotes({ showCompleteToast = false } = {}) {
   if (!hasSetupFields() || !state.online) return;
   const pending = state.notes.filter((note) => note.pending && !note.deleted);
   for (const note of pending) {
     await pushNote(note);
+  }
+  if (showCompleteToast && pending.length) {
+    setSync("ok", `Pushed ${pending.length} file${pending.length === 1 ? "" : "s"}`);
+    showToast(`Pushed ${pending.length} file${pending.length === 1 ? "" : "s"} to GitHub.`);
   }
 }
 
@@ -941,9 +1460,13 @@ function renderNoteList(container, searchValue) {
     if (!query) return true;
     return note.title.toLowerCase().includes(query) || note.path.toLowerCase().includes(query);
   });
+  const folders = state.folders.filter((folder) => {
+    if (!query) return true;
+    return folder.toLowerCase().includes(query) || notes.some((note) => note.path.startsWith(`${folder}/`));
+  });
 
   container.innerHTML = "";
-  if (!notes.length) {
+  if (!notes.length && !folders.length) {
     const empty = document.createElement("p");
     empty.className = "help-text";
     empty.textContent = state.notes.length ? "No matching notes." : "No notes yet.";
@@ -951,11 +1474,23 @@ function renderNoteList(container, searchValue) {
     return;
   }
 
-  renderNoteTree(buildNoteTree(notes), container, 0);
+  renderNoteTree(buildNoteTree(notes, folders), container, 0);
 }
 
-function buildNoteTree(notes) {
+function buildNoteTree(notes, folders = []) {
   const root = { dirs: new Map(), files: [] };
+
+  for (const folder of folders) {
+    const parts = folder.split("/").filter(Boolean);
+    let node = root;
+
+    for (const part of parts) {
+      if (!node.dirs.has(part)) {
+        node.dirs.set(part, { name: part, dirs: new Map(), files: [] });
+      }
+      node = node.dirs.get(part);
+    }
+  }
 
   for (const note of notes) {
     const parts = note.path.split("/");
