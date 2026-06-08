@@ -312,15 +312,18 @@ async function syncFromRemote({ silent = false } = {}) {
 
   for (const file of markdownFiles) {
     const local = localByPath.get(file.path);
+    const hasLocalChanges = Boolean(local?.dirty || local?.pending);
+    const remoteChanged = Boolean(local?.sha && local.sha !== file.sha);
+    const keepLocalContent = Boolean(local && (hasLocalChanges || !remoteChanged));
     merged.push({
       id: local?.id || crypto.randomUUID(),
       path: file.path,
       title: titleFromPath(file.path),
       sha: file.sha,
       remoteSha: file.sha,
-      content: local?.content || "",
-      savedContent: local?.savedContent ?? (local?.dirty || local?.pending ? "" : local?.content || ""),
-      loaded: Boolean(local?.loaded),
+      content: keepLocalContent ? local.content || "" : "",
+      savedContent: keepLocalContent ? local.savedContent ?? (hasLocalChanges ? "" : local.content || "") : "",
+      loaded: keepLocalContent && Boolean(local?.loaded),
       dirty: Boolean(local?.dirty),
       pending: Boolean(local?.pending),
       deleted: false,
